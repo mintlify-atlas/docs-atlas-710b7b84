@@ -1,0 +1,122 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "deBridge Protocol V1",
+  "projectDescription": "Cross-chain interoperability and liquidity transfer protocol for decentralized transfer of data and assets between blockchains",
+  "theme": "aspen",
+  "primaryColor": "#848c8e",
+  "lightColor": "#11161e",
+  "darkColor": "#cfd0d2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/transfers",
+              "concepts/cross-chain-messaging",
+              "concepts/oracles",
+              "concepts/fees"
+            ]
+          },
+          {
+            "group": "Integration Guide",
+            "pages": [
+              "integration/overview",
+              "integration/sending-assets",
+              "integration/cross-chain-calls",
+              "integration/bridgeappbase"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Smart Contracts",
+        "groups": [
+          {
+            "group": "Core Contracts",
+            "pages": [
+              "contracts/debridgegate",
+              "contracts/debridgetokendeployer",
+              "contracts/oraclesmanager",
+              "contracts/signatureverifier",
+              "contracts/wethgate"
+            ]
+          },
+          {
+            "group": "Periphery",
+            "pages": [
+              "contracts/periphery/callproxy",
+              "contracts/periphery/debridgetoken",
+              "contracts/periphery/feeproxy"
+            ]
+          },
+          {
+            "group": "Interfaces",
+            "pages": [
+              "contracts/interfaces/idebridgegate",
+              "contracts/interfaces/icallproxy",
+              "contracts/interfaces/ioraclesmanager"
+            ]
+          },
+          {
+            "group": "Libraries",
+            "pages": [
+              "contracts/libraries/flags",
+              "contracts/libraries/signatureutil"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer Resources",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/incrementor",
+              "examples/sending-eth",
+              "examples/sending-erc20",
+              "examples/cross-chain-swap"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/testing",
+              "development/deployment",
+              "development/verification"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Cross-chain asset transfers with lock-and-mint mechanism",
+    "Arbitrary data messaging between blockchains",
+    "Decentralized oracle network for transaction validation",
+    "Call proxy for executing cross-chain smart contract calls",
+    "Flexible fee structure with discounts",
+    "Support for native tokens and ERC-20 assets"
+  ],
+  "publicApiSurface": [
+    "DeBridgeGate.send",
+    "DeBridgeGate.claim",
+    "DeBridgeGate.sendMessage",
+    "CallProxy.call",
+    "DeBridgeTokenDeployer.deployNewToken",
+    "OraclesManager.addOracles",
+    "SignatureVerifier.submit"
+  ]
+}
