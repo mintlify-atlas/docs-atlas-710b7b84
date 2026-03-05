@@ -1,315 +1,296 @@
 ---
-title: Quickstart
-description: Get started with deBridge Protocol - make your first cross-chain transfer in minutes
+title: "Quickstart"
+description: "Get started with deBridge Protocol V1 in minutes"
 ---
 
-# Quickstart Guide
+## Overview
 
-This guide will walk you through making your first cross-chain transfer using the deBridge Protocol.
+This quickstart guide will help you set up the deBridge contracts, run tests, and execute your first cross-chain transfer. By the end, you'll understand the basic workflow of the protocol.
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
+- **Node.js** 16.x or higher
+- **Yarn** or npm package manager
+- **Git** for cloning the repository
+
+## Installation
+
 <Steps>
-  <Step title="Development Environment">
-    - Node.js v16+ and npm/yarn installed
-    - Hardhat or Foundry for smart contract development
-    - A code editor (VS Code recommended)
+  <Step title="Clone the Repository">
+    Clone the deBridge contracts repository:
+    
+    ```bash
+    git clone https://github.com/debridge-finance/debridge-contracts-v1.git
+    cd debridge-contracts-v1
+    ```
   </Step>
   
-  <Step title="Blockchain Basics">
-    - Understanding of Ethereum and EVM-compatible chains
-    - Familiarity with Solidity smart contracts
-    - Knowledge of how to interact with blockchain networks
+  <Step title="Install Dependencies">
+    Install all required packages:
+    
+    <CodeGroup>
+    ```bash npm
+    npm install
+    ```
+    
+    ```bash yarn
+    yarn install
+    ```
+    </CodeGroup>
   </Step>
   
-  <Step title="Wallet and Funds">
-    - A wallet with private key access (e.g., MetaMask)
-    - Native tokens for gas fees on both source and destination chains
-    - Test tokens for experimentation (use testnets first)
+  <Step title="Compile Contracts">
+    Compile the smart contracts:
+    
+    ```bash
+    yarn compile
+    ```
+    
+    This generates:
+    - Compiled bytecode in `artifacts/`
+    - TypeChain type definitions
+    - Contract ABIs
   </Step>
 </Steps>
 
-## Step 1: Install Dependencies
+## Running Tests
 
-First, install the required packages for your project:
-
-<Tabs>
-  <Tab title="npm">
-    ```bash
-    npm install --save-dev @openzeppelin/contracts-upgradeable
-    npm install --save-dev @openzeppelin/contracts
-    ```
-  </Tab>
-  
-  <Tab title="yarn">
-    ```bash
-    yarn add -D @openzeppelin/contracts-upgradeable
-    yarn add -D @openzeppelin/contracts
-    ```
-  </Tab>
-</Tabs>
-
-## Step 2: Set Up Your Contract
-
-Create a simple contract that interacts with DeBridgeGate:
-
-```solidity contracts/MyFirstBridge.sol
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.7;
-
-interface IDeBridgeGate {
-    function send(
-        address _tokenAddress,
-        uint256 _amount,
-        uint256 _chainIdTo,
-        bytes memory _receiver,
-        bytes memory _permitEnvelope,
-        bool _useAssetFee,
-        uint32 _referralCode,
-        bytes calldata _autoParams
-    ) external payable returns (bytes32 submissionId);
-    
-    function globalFixedNativeFee() external view returns (uint256);
-}
-
-contract MyFirstBridge {
-    IDeBridgeGate public deBridgeGate;
-    
-    constructor(address _deBridgeGate) {
-        deBridgeGate = IDeBridgeGate(_deBridgeGate);
-    }
-    
-    // Transfer native tokens to another chain
-    function bridgeNativeToken(
-        uint256 _chainIdTo,
-        address _receiver
-    ) external payable {
-        require(msg.value > 0, "Must send native tokens");
-        
-        // Convert receiver address to bytes
-        bytes memory receiverBytes = abi.encodePacked(_receiver);
-        
-        // Send via deBridge
-        // tokenAddress = address(0) for native tokens
-        // amount = msg.value (will be wrapped to WETH)
-        deBridgeGate.send{value: msg.value}(
-            address(0),           // native token
-            msg.value,            // amount
-            _chainIdTo,           // destination chain ID
-            receiverBytes,        // receiver address
-            "",                   // no permit
-            true,                 // use asset fee
-            0,                    // no referral code
-            ""                    // no auto params
-        );
-    }
-}
-```
-
-## Step 3: Deploy Your Contract
-
-Deploy your contract with the DeBridgeGate address for your network:
-
-<Tabs>
-  <Tab title="Ethereum Mainnet">
-    ```javascript scripts/deploy.js
-    const deBridgeGateAddress = "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA";
-    
-    async function main() {
-      const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
-      const bridge = await MyFirstBridge.deploy(deBridgeGateAddress);
-      await bridge.deployed();
-      
-      console.log("MyFirstBridge deployed to:", bridge.address);
-    }
-    ```
-  </Tab>
-  
-  <Tab title="BSC Mainnet">
-    ```javascript scripts/deploy.js
-    const deBridgeGateAddress = "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA";
-    
-    async function main() {
-      const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
-      const bridge = await MyFirstBridge.deploy(deBridgeGateAddress);
-      await bridge.deployed();
-      
-      console.log("MyFirstBridge deployed to:", bridge.address);
-    }
-    ```
-  </Tab>
-  
-  <Tab title="Polygon">
-    ```javascript scripts/deploy.js
-    const deBridgeGateAddress = "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA";
-    
-    async function main() {
-      const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
-      const bridge = await MyFirstBridge.deploy(deBridgeGateAddress);
-      await bridge.deployed();
-      
-      console.log("MyFirstBridge deployed to:", bridge.address);
-    }
-    ```
-  </Tab>
-</Tabs>
-
-Run the deployment:
+Verify your setup by running the test suite:
 
 ```bash
-npx hardhat run scripts/deploy.js --network <your-network>
+yarn test
 ```
 
-## Step 4: Make Your First Transfer
+Expected output:
 
-Now interact with your deployed contract to make a cross-chain transfer:
+```
+DeBridgePipeline
+  ✓ Should send native asset (432ms)
+  ✓ Should send ERC20 token (523ms)
+  ✓ Should claim transfer (891ms)
+  ...
 
-```javascript scripts/transfer.js
-const { ethers } = require("hardhat");
-
-async function main() {
-  // Get contract instance
-  const bridgeAddress = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
-  const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
-  const bridge = await MyFirstBridge.attach(bridgeAddress);
-  
-  // Set transfer parameters
-  const destinationChainId = 56; // BSC
-  const receiverAddress = "0xYourReceiverAddress";
-  const amountToSend = ethers.utils.parseEther("0.1"); // 0.1 ETH
-  
-  // Execute the transfer
-  console.log("Sending 0.1 ETH to BSC...");
-  const tx = await bridge.bridgeNativeToken(
-    destinationChainId,
-    receiverAddress,
-    { value: amountToSend }
-  );
-  
-  console.log("Transaction hash:", tx.hash);
-  console.log("Waiting for confirmation...");
-  
-  const receipt = await tx.wait();
-  console.log("Transfer initiated! Receipt:", receipt.transactionHash);
-}
-
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+85 passing (2m 14s)
 ```
 
-Run the transfer:
+<Tip>
+  If you encounter module errors, run `yarn hardhat clean` and then `yarn compile` again.
+</Tip>
 
-```bash
-npx hardhat run scripts/transfer.js --network <your-network>
-```
+## Understanding the Architecture
 
-## Step 5: Track Your Transfer
+The deBridge Protocol consists of several key components:
 
-After initiating a transfer, you can track its status:
+<CardGroup cols={2}>
+  <Card title="DeBridgeGate" icon="door-open" href="/contracts/debridgegate">
+    Main contract for sending assets and messages cross-chain
+  </Card>
+  <Card title="CallProxy" icon="phone" href="/contracts/periphery/callproxy">
+    Executes cross-chain smart contract calls
+  </Card>
+  <Card title="OraclesManager" icon="users" href="/contracts/oraclesmanager">
+    Manages the decentralized validator network
+  </Card>
+  <Card title="DeBridgeToken" icon="coins" href="/contracts/periphery/debridgetoken">
+    ERC-20 wrapped tokens for cross-chain assets
+  </Card>
+</CardGroup>
+
+## Your First Cross-Chain Transfer
+
+Let's walk through sending assets cross-chain:
 
 <Steps>
-  <Step title="Get Submission ID">
-    The `send` function returns a `submissionId` which uniquely identifies your transfer. Listen for the `Sent` event to capture it:
+  <Step title="Set Up Environment">
+    Create a `.env` file with your configuration:
     
-    ```javascript
+    ```bash .env
+    # Network RPC URLs
+    MAINNET_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/YOUR-API-KEY
+    BSC_RPC_URL=https://bsc-dataseed.binance.org/
+    
+    # For testnet deployment
+    DEPLOYER_PRIVATE_KEY=0x...
+    
+    # Oracle keys (for testing)
+    TEST_ORACLE_KEYS=["0x512aba...","0x79b2a2..."]
+    ```
+    
+    <Warning>
+      Never commit your `.env` file or expose private keys.
+    </Warning>
+  </Step>
+  
+  <Step title="Connect to DeBridgeGate">
+    In your application code:
+    
+    ```typescript Connect to Contract
+    import { ethers } from 'ethers';
+    import { DeBridgeGate__factory } from './typechain-types';
+    
+    const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+    const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+    
+    const debridgeGate = DeBridgeGate__factory.connect(
+        DEBRIDGEGATE_ADDRESS,
+        wallet
+    );
+    ```
+  </Step>
+  
+  <Step title="Send Native Tokens">
+    Send ETH to another chain:
+    
+    ```typescript Send ETH Cross-Chain
+    const amount = ethers.utils.parseEther('0.1'); // 0.1 ETH
+    const chainIdTo = 56; // BSC
+    const receiverAddress = '0x...'; // Recipient on BSC
+    
+    // Get protocol fee
+    const protocolFee = await debridgeGate.globalFixedNativeFee();
+    
+    // Send transaction
+    const tx = await debridgeGate.send(
+        ethers.constants.AddressZero,           // Native token
+        amount,
+        chainIdTo,
+        ethers.utils.hexZeroPad(receiverAddress, 32),
+        '0x',                                    // No permit
+        false,                                   // Pay fee separately
+        0,                                       // No referral
+        '0x',                                    // No auto params
+        { value: amount.add(protocolFee) }
+    );
+    
+    console.log('Transaction:', tx.hash);
     const receipt = await tx.wait();
+    
+    // Get submission ID from event
     const sentEvent = receipt.events?.find(e => e.event === 'Sent');
-    const submissionId = sentEvent?.args?.submissionId;
-    console.log("Submission ID:", submissionId);
+    console.log('Submission ID:', sentEvent?.args?.submissionId);
     ```
   </Step>
   
-  <Step title="Monitor Oracle Signatures">
-    Wait for validators to sign your transaction. This typically takes 2-5 minutes depending on network conditions.
-  </Step>
-  
-  <Step title="Claim on Destination">
-    Once enough signatures are collected, the transaction can be claimed on the destination chain. This is typically done automatically by keepers, or you can claim it manually.
+  <Step title="Track Transaction">
+    Monitor your cross-chain transaction:
+    
+    - **Testnet Explorer**: https://testnet-explorer.debridge.finance/
+    - **Mainnet Explorer**: https://mainnet-explorer.debridge.finance/
+    
+    Enter your transaction hash or submission ID to see the status.
   </Step>
 </Steps>
 
-## Understanding the Transfer Flow
+## Running Examples
 
-Here's what happens during a cross-chain transfer:
+The repository includes working examples:
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant SourceGate as DeBridgeGate (Source)
-    participant Validators
-    participant DestGate as DeBridgeGate (Destination)
-    participant Recipient
-    
-    User->>SourceGate: send() with assets
-    SourceGate->>SourceGate: Lock/Burn assets
-    SourceGate->>SourceGate: Emit Sent event
-    SourceGate-->>Validators: Transaction data
-    Validators->>Validators: Validate & Sign
-    Validators-->>DestGate: Signatures
-    DestGate->>DestGate: Verify signatures
-    DestGate->>DestGate: Mint/Unlock assets
-    DestGate->>Recipient: Transfer assets
-    DestGate->>DestGate: Emit Claimed event
+### Send Native Token
+
+```bash
+yarn ts-node examples/src/sendScripts/sendETH.ts
 ```
+
+### Send ERC-20 Token
+
+```bash
+yarn ts-node examples/src/sendScripts/sendERC20.ts
+```
+
+### Cross-Chain Message (Incrementor)
+
+```bash
+# Deploy on both chains
+yarn hardhat run --network bsctest examples/src/incrementorScripts/deploy.ts
+yarn hardhat run --network kovan examples/src/incrementorScripts/deploy.ts
+
+# Configure contracts
+yarn hardhat run --network bsctest examples/src/incrementorScripts/setContractAddressOnChainId.ts
+yarn hardhat run --network kovan examples/src/incrementorScripts/addControllingAddress.ts
+
+# Send message
+yarn hardhat run --network bsctest examples/src/incrementorScripts/send.ts
+```
+
+<Info>
+  See the [Examples section](/examples/incrementor) for detailed guides on each example.
+</Info>
+
+## Key Concepts
+
+Before building with deBridge, understand these core concepts:
+
+1. **Lock-and-Mint**: Assets are locked on the source chain and wrapped tokens (deTokens) are minted on the destination
+2. **Oracle Network**: Independent validators sign and verify cross-chain transactions
+3. **CallProxy**: Enables arbitrary smart contract calls across chains
+4. **Fees**: Consist of fixed protocol fees and percentage-based transfer fees
+
+Learn more in the [Core Concepts](/concepts/transfers) section.
 
 ## Next Steps
 
-Congratulations! You've made your first cross-chain transfer. Here's what to explore next:
-
 <CardGroup cols={2}>
-  <Card title="Send Cross-Chain Messages" icon="message" href="/integration/cross-chain-calls">
-    Learn how to send arbitrary data and execute smart contract calls across chains
+  <Card title="Architecture Overview" icon="diagram-project" href="/architecture">
+    Understand how the protocol works
   </Card>
-  
-  <Card title="Understand Transfers" icon="arrows-left-right" href="/concepts/transfers">
-    Deep dive into how asset transfers work with lock-and-mint mechanism
+  <Card title="Integration Guide" icon="code" href="/integration/overview">
+    Integrate deBridge into your application
   </Card>
-  
-  <Card title="Explore Fees" icon="dollar-sign" href="/concepts/fees">
-    Learn about fee structure and how to optimize costs
+  <Card title="Smart Contracts" icon="file-contract" href="/contracts/debridgegate">
+    Explore contract documentation
   </Card>
-  
-  <Card title="Advanced Integration" icon="code" href="/integration/bridgeappbase">
-    Use BridgeAppBase pattern for complex cross-chain applications
+  <Card title="Examples" icon="lightbulb" href="/examples/incrementor">
+    Learn from working examples
   </Card>
 </CardGroup>
 
 ## Common Issues
 
-<AccordionGroup>
-  <Accordion title="Transaction Reverts with 'TransferAmountNotCoverFees'">
-    Make sure you're sending enough value to cover both the protocol fixed fee and the transfer fee. Check the current fees using:
-    
-    ```solidity
-    uint256 fixedFee = deBridgeGate.globalFixedNativeFee();
-    uint256 transferFeeBps = deBridgeGate.globalTransferFeeBps();
-    ```
-  </Accordion>
+<Accordion title="Cannot find module '../typechain-types'">
+  TypeChain types haven't been generated yet.
   
-  <Accordion title="Transfer Not Appearing on Destination Chain">
-    - Wait 5-10 minutes for validator signatures to be collected
-    - Check that the destination chain is supported
-    - Verify you're using the correct chain IDs
-    - Ensure the destination chain has keepers running to auto-claim
-  </Accordion>
+  **Solution**:
+  ```bash
+  yarn hardhat clean
+  yarn compile
+  ```
+</Accordion>
+
+<Accordion title="Transaction reverts with 'NotEnoughReserves'">
+  The bridge doesn't have enough liquidity for your transfer.
   
-  <Accordion title="'WrongChainTo' Error">
-    The destination chain may not be supported for this asset. Check chain support configuration or contact the deBridge team.
-  </Accordion>
-</AccordionGroup>
+  **Solution**:
+  - Check `maxAmount` for the asset
+  - Try a smaller amount
+  - Wait for liquidity to be replenished
+</Accordion>
 
-<Warning>
-  Always test on testnets first before deploying to mainnet. Start with small amounts to verify your integration works correctly.
-</Warning>
+<Accordion title="Claim not executing automatically">
+  Insufficient execution fee was provided.
+  
+  **Solution**:
+  - Include a higher execution fee when sending
+  - Manually claim the transaction (advanced)
+</Accordion>
 
-## Get Help
+## Resources
 
-Need assistance?
+- **Documentation Portal**: https://docs.debridge.finance/
+- **deBridge App**: https://app.debridge.finance/
+- **GitHub**: https://github.com/debridge-finance
+- **Discord**: https://discord.com/invite/debridge
+- **Twitter**: https://twitter.com/DebridgeFinance
 
-- Join our [Discord](https://discord.com/invite/debridge) for community support
-- Check the [Integration Guide](/integration/overview) for detailed documentation
-- Review [example contracts](https://github.com/debridge-finance) on GitHub
+## Support
+
+Need help? Reach out through:
+
+- **Discord**: Join the #developer channel
+- **GitHub Issues**: Report bugs or request features
+- **Documentation**: Check the integration guides
+
+<Tip>
+  Start with testnet deployments before moving to mainnet. Test thoroughly with small amounts first.
+</Tip>
