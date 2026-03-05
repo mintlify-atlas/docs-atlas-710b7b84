@@ -1,0 +1,253 @@
+---
+title: "Development Setup"
+description: "Configure your local environment for deBridge contract development"
+---
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- **Node.js** 16.x or higher
+- **Yarn** or npm package manager
+- **Git** for version control
+- **Code editor** (VS Code recommended)
+
+## Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash Clone deBridge Contracts
+    git clone https://github.com/debridge-finance/debridge-contracts-v1.git
+    cd debridge-contracts-v1
+    ```
+  </Step>
+  
+  <Step title="Install Dependencies">
+    <CodeGroup>
+    ```bash npm
+    npm install
+    ```
+    
+    ```bash yarn
+    yarn install
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Compile Contracts">
+    ```bash Compile with Hardhat
+    yarn compile
+    ```
+    
+    This generates:
+    - Compiled bytecode in `artifacts/`
+    - TypeChain type definitions in `typechain-types/`
+    - ABI files for contract interaction
+  </Step>
+  
+  <Step title="Configure Environment">
+    Create a `.env` file in the project root:
+    
+    ```bash .env
+    # Network RPC URLs
+    MAINNET_RPC_URL=https://eth-mainnet.alchemyapi.io/v2/YOUR-API-KEY
+    BSC_RPC_URL=https://bsc-dataseed.binance.org/
+    POLYGON_RPC_URL=https://polygon-rpc.com/
+    
+    # Private keys (for deployment)
+    DEPLOYER_PRIVATE_KEY=0x...
+    
+    # Block explorers (for verification)
+    ETHERSCAN_API_KEY=YOUR_KEY
+    BSCSCAN_API_KEY=YOUR_KEY
+    POLYGONSCAN_API_KEY=YOUR_KEY
+    
+    # Oracle configuration (for testing)
+    TEST_ORACLE_KEYS=["0x512aba...","0x79b2a2..."]
+    ```
+    
+    <Warning>
+      Never commit your `.env` file or share private keys. The `.gitignore` file excludes `.env` by default.
+    </Warning>
+  </Step>
+</Steps>
+
+## Project Structure
+
+```
+debridge-contracts-v1/
+├── contracts/              # Solidity contracts
+│   ├── transfers/         # Core bridge contracts
+│   ├── periphery/         # Helper contracts
+│   ├── interfaces/        # Contract interfaces
+│   └── libraries/         # Utility libraries
+├── test/                  # Test files
+├── scripts/               # Deployment scripts
+│   └── deploy/            # Hardhat deploy scripts
+├── examples/              # Integration examples
+├── hardhat.config.ts     # Hardhat configuration
+├── package.json          # Dependencies and scripts
+└── tsconfig.json         # TypeScript configuration
+```
+
+## Available Scripts
+
+The `package.json` defines several useful scripts:
+
+### Compilation
+
+```bash
+# Compile contracts
+yarn compile
+
+# Clean compiled artifacts
+yarn clean
+```
+
+### Testing
+
+```bash
+# Run all tests
+yarn test
+
+# Run with coverage
+yarn coverage
+
+# Run specific test file
+yarn hardhat test test/DebridgePipeline.test.js
+```
+
+### Code Quality
+
+```bash
+# Check Solidity formatting
+yarn format:check
+
+# Fix Solidity formatting
+yarn format:fix
+
+# Lint contracts
+yarn lint:check
+
+# Fix linting issues
+yarn lint:fix
+```
+
+### Contract Size
+
+```bash
+# Check contract sizes
+yarn contract-size
+```
+
+Useful for ensuring contracts fit within the 24KB deployment limit.
+
+## IDE Setup
+
+### VS Code Extensions
+
+Recommended extensions:
+
+- **Solidity** by Juan Blanco
+- **Hardhat Solidity** by Nomic Foundation
+- **Prettier** for code formatting
+- **ESLint** for JavaScript/TypeScript linting
+
+### VS Code Settings
+
+Add to `.vscode/settings.json`:
+
+```json
+{
+  "solidity.compileUsingRemoteVersion": "v0.8.17",
+  "solidity.formatter": "prettier",
+  "[solidity]": {
+    "editor.defaultFormatter": "NomicFoundation.hardhat-solidity"
+  },
+  "editor.formatOnSave": true
+}
+```
+
+## Hardhat Network
+
+Hardhat provides a local Ethereum network for development:
+
+```bash
+# Start local network
+yarn hardhat node
+```
+
+This starts a local blockchain at `http://127.0.0.1:8545/` with:
+- 20 test accounts with 10000 ETH each
+- Fast block mining
+- Console logging of transactions
+- State that persists until the node is stopped
+
+### Interacting with Local Network
+
+```bash
+# Deploy to local network
+yarn hardhat run scripts/deploy/01-0_DeBridgeGate.js --network localhost
+
+# Run tests against local network
+yarn hardhat test --network localhost
+```
+
+## Troubleshooting
+
+<Accordion title="Cannot find module '../typechain-types'">
+  
+  TypeChain types haven't been generated.
+  
+  **Solution**:
+  ```bash
+  yarn hardhat clean
+  yarn compile
+  ```
+  
+  This regenerates all type definitions.
+  
+</Accordion>
+
+<Accordion title="Compilation errors with OpenZeppelin">
+  
+  Version mismatch with OpenZeppelin contracts.
+  
+  **Solution**:
+  ```bash
+  rm -rf node_modules
+  rm yarn.lock  # or package-lock.json
+  yarn install
+  yarn compile
+  ```
+  
+</Accordion>
+
+<Accordion title="Out of memory during compilation">
+  
+  Increase Node.js memory limit:
+  
+  **Solution**:
+  ```bash
+  export NODE_OPTIONS="--max-old-space-size=4096"
+  yarn compile
+  ```
+  
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Testing Guide" icon="vial" href="/development/testing">
+    Learn how to write and run tests
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/development/deployment">
+    Deploy contracts to networks
+  </Card>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Get started with your first transfer
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/incrementor">
+    Explore integration examples
+  </Card>
+</CardGroup>

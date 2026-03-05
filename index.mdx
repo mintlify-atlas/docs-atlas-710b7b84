@@ -1,97 +1,340 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+mode: "custom"
 ---
 
-## Setting up
+<div className="relative bg-gradient-to-br from-[#020627] via-[#0a0e2e] to-[#020627] text-white overflow-hidden">
+  {/* Background pattern overlay */}
+  <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2dyaWQpIi8+PC9zdmc+')] opacity-40"></div>
+  
+  <div className="relative max-w-7xl mx-auto px-6 sm:px-8 py-20 lg:py-24">
+    <div className="grid lg:grid-cols-2 gap-12 items-center">
+      {/* Hero content */}
+      <div className="space-y-8">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#529c3a]/10 border border-[#529c3a]/20">
+          <span className="text-[#529c3a] text-sm font-medium">Cross-Chain Infrastructure</span>
+        </div>
+        
+        <h1 className="text-5xl lg:text-6xl font-bold leading-tight">
+          deBridge Protocol V1
+        </h1>
+        
+        <p className="text-xl text-gray-300 max-w-2xl leading-relaxed">
+          A decentralized cross-chain interoperability and liquidity transfer protocol enabling secure asset and data transfers between any blockchain networks.
+        </p>
+        
+        <div className="flex flex-wrap gap-4">
+          <a 
+            href="/quickstart"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-[#238636] hover:bg-[#2ea043] text-white font-semibold rounded-lg transition-colors"
+          >
+            Get Started
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </a>
+          <a 
+            href="/architecture"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg border border-white/20 transition-colors"
+          >
+            View Architecture
+          </a>
+        </div>
+        
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-6 pt-8 border-t border-white/10">
+          <div>
+            <div className="text-2xl font-bold text-[#529c3a]">57+</div>
+            <div className="text-sm text-gray-400">GitHub Stars</div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-[#529c3a]">Multi-Chain</div>
+            <div className="text-sm text-gray-400">Support</div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-[#529c3a]">100%</div>
+            <div className="text-sm text-gray-400">Decentralized</div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Hero visual */}
+      <div className="hidden lg:block">
+        <div className="relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#529c3a]/20 to-[#238636]/20 rounded-2xl blur-3xl"></div>
+          <div className="relative bg-[rgba(48,54,79,1)] border border-[rgba(96,99,146,1)] rounded-2xl p-6 shadow-2xl">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                <span className="ml-auto text-sm text-gray-400 font-mono">DeBridgeGate.sol</span>
+              </div>
+              <pre className="text-sm text-gray-300 font-mono overflow-x-auto">
+{`// Transfer assets cross-chain
+function send(
+  address _tokenAddress,
+  uint256 _amount,
+  uint256 _chainIdTo,
+  bytes memory _receiver,
+  bytes memory _permit,
+  bool _useAssetFee,
+  uint32 _referralCode,
+  bytes calldata _autoParams
+) external payable;`}
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+{/* Quick Start Section */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Quick Start</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400">Get up and running with deBridge Protocol in minutes</p>
+  </div>
+  
+  <Steps>
+    <Step title="Understand the Architecture">
+      Learn how deBridge Protocol works with its lock-and-mint mechanism, oracle network, and cross-chain messaging system.
+      
+      <Card title="Read Architecture Overview" icon="diagram-project" href="/architecture">
+        Explore the core components and design principles
+      </Card>
+    </Step>
+    
+    <Step title="Deploy or Connect to Contracts">
+      Deploy the smart contracts to your target networks or connect to existing deBridge deployments.
+      
+      ```bash Setup Environment
+      # Clone the repository
+      git clone https://github.com/debridge-finance/debridge-contracts-v1.git
+      cd debridge-contracts-v1
+      
+      # Install dependencies
+      yarn install
+      
+      # Compile contracts
+      yarn compile
+      ```
+      
+      <Note>
+        Make sure you have Node.js 16+ and Hardhat installed before proceeding.
+      </Note>
+    </Step>
+    
+    <Step title="Send Your First Cross-Chain Transfer">
+      Use the DeBridgeGate contract to send assets or messages between chains.
+      
+      ```solidity Send Assets
+      // Send ETH to another chain
+      deBridgeGate.send{value: amount + protocolFee}(
+        address(0), // native token
+        amount,
+        targetChainId,
+        receiverAddressBytes,
+        permitData,
+        useAssetFee,
+        referralCode,
+        autoParams
+      );
+      ```
+      
+      <Accordion title="View example response">
+        After a successful send, you'll receive a `Sent` event with a unique `submissionId` that can be used to track the transfer through the deBridge explorer.
+      </Accordion>
+    </Step>
+  </Steps>
+</div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+{/* Core Features */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Core Features</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400">Everything you need for cross-chain interoperability</p>
+  </div>
+  
+  <CardGroup cols={2}>
+    <Card title="Asset Transfers" icon="arrow-right-arrow-left" href="/concepts/transfers">
+      Lock-and-mint mechanism for secure cross-chain asset transfers with 1:1 collateral backing
+    </Card>
+    <Card title="Cross-Chain Messaging" icon="message" href="/concepts/cross-chain-messaging">
+      Send arbitrary data and execute smart contract calls across different blockchain networks
+    </Card>
+    <Card title="Decentralized Oracles" icon="network-wired" href="/concepts/oracles">
+      Independent validator network with delegated staking and slashing mechanics for security
+    </Card>
+    <Card title="Flexible Fee Structure" icon="coins" href="/concepts/fees">
+      Configurable fees with discount support and multiple payment options including native tokens
+    </Card>
+  </CardGroup>
+</div>
 
-## Make it yours
+{/* Smart Contracts */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Explore Smart Contracts</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400">Comprehensive reference for all deBridge contracts</p>
+  </div>
+  
+  <CardGroup cols={3}>
+    <Card title="DeBridgeGate" icon="door-open" href="/contracts/debridgegate">
+      Main contract for asset transfers and cross-chain operations
+    </Card>
+    <Card title="CallProxy" icon="phone" href="/contracts/periphery/callproxy">
+      Execute cross-chain smart contract calls with custom parameters
+    </Card>
+    <Card title="OraclesManager" icon="users" href="/contracts/oraclesmanager">
+      Manage the decentralized oracle network and validator set
+    </Card>
+    <Card title="SignatureVerifier" icon="shield-check" href="/contracts/signatureverifier">
+      Verify oracle signatures for cross-chain transaction validation
+    </Card>
+    <Card title="DeBridgeToken" icon="coins" href="/contracts/periphery/debridgetoken">
+      ERC-20 wrapped tokens representing assets on secondary chains
+    </Card>
+    <Card title="Libraries" icon="book" href="/contracts/libraries/flags">
+      Utility libraries for flags, signatures, and helper functions
+    </Card>
+  </CardGroup>
+</div>
 
-Design a docs site that looks great and empowers your users.
+{/* Integration Examples */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Integration Examples</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400">Learn by example with real-world integration patterns</p>
+  </div>
+  
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <a href="/examples/incrementor" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#848c8e] dark:hover:border-[#848c8e] overflow-hidden no-underline transition-colors">
+      <div className="h-32 bg-gradient-to-br from-[#529c3a]/10 to-[#238636]/10 flex items-center justify-center border-b border-gray-200 dark:border-[#27272a]">
+        <svg className="w-16 h-16 text-[#529c3a]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+        </svg>
+      </div>
+      <div className="p-6 bg-white dark:bg-[#1a1d27]">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">Incrementor Contract</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Cross-chain state synchronization using BridgeAppBase pattern</p>
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500 group-hover:text-[#848c8e]">
+          <span>View example</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+    
+    <a href="/examples/sending-eth" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#848c8e] dark:hover:border-[#848c8e] overflow-hidden no-underline transition-colors">
+      <div className="h-32 bg-gradient-to-br from-purple-500/10 to-blue-500/10 flex items-center justify-center border-b border-gray-200 dark:border-[#27272a]">
+        <svg className="w-16 h-16 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </div>
+      <div className="p-6 bg-white dark:bg-[#1a1d27]">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">Sending Native Tokens</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Transfer ETH and other native tokens across chains</p>
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500 group-hover:text-[#848c8e]">
+          <span>View example</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+    
+    <a href="/examples/sending-erc20" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#848c8e] dark:hover:border-[#848c8e] overflow-hidden no-underline transition-colors">
+      <div className="h-32 bg-gradient-to-br from-orange-500/10 to-red-500/10 flex items-center justify-center border-b border-gray-200 dark:border-[#27272a]">
+        <svg className="w-16 h-16 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2z" />
+        </svg>
+      </div>
+      <div className="p-6 bg-white dark:bg-[#1a1d27]">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">Sending ERC-20 Tokens</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Bridge any ERC-20 token with permit support</p>
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500 group-hover:text-[#848c8e]">
+          <span>View example</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+    
+    <a href="/examples/cross-chain-swap" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#848c8e] dark:hover:border-[#848c8e] overflow-hidden no-underline transition-colors">
+      <div className="h-32 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 flex items-center justify-center border-b border-gray-200 dark:border-[#27272a]">
+        <svg className="w-16 h-16 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+        </svg>
+      </div>
+      <div className="p-6 bg-white dark:bg-[#1a1d27]">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">Cross-Chain Swaps</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Swap tokens across chains with automatic execution</p>
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500 group-hover:text-[#848c8e]">
+          <span>View example</span>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+{/* Developer Resources */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Developer Resources</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400">Tools and guides for building on deBridge</p>
+  </div>
+  
+  <CardGroup cols={2}>
+    <Card title="Development Setup" icon="laptop-code" href="/development/setup">
+      Configure your local environment for contract development and testing
+    </Card>
+    <Card title="Testing Guide" icon="vial" href="/development/testing">
+      Run comprehensive test suites and write your own integration tests
+    </Card>
+    <Card title="Deployment" icon="rocket" href="/development/deployment">
+      Deploy contracts to testnet and mainnet with Hardhat scripts
+    </Card>
+    <Card title="Contract Verification" icon="badge-check" href="/development/verification">
+      Verify deployed contracts on block explorers for transparency
+    </Card>
+  </CardGroup>
+</div>
 
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+{/* Community & Support */}
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl bg-gradient-to-br from-[#529c3a]/10 to-[#238636]/10 border border-[#529c3a]/20 p-8 md:p-12 text-center">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Join the deBridge Community</h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400 mb-8 max-w-2xl mx-auto">
+      Connect with developers, ask questions, and stay updated on the latest protocol developments
+    </p>
+    
+    <div className="flex flex-wrap justify-center gap-4">
+      <a 
+        href="https://discord.com/invite/debridge"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 px-6 py-3 bg-[#238636] hover:bg-[#2ea043] text-white font-semibold rounded-lg transition-colors"
+      >
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+        </svg>
+        Join Discord
+      </a>
+      <a 
+        href="https://twitter.com/DebridgeFinance"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-gray-900 dark:text-white font-semibold rounded-lg border border-gray-200 dark:border-white/20 transition-colors"
+      >
+        Follow on Twitter
+      </a>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,209 @@
+---
+title: "Incrementor Contract Example"
+description: "Cross-chain state synchronization using BridgeAppBase pattern"
+---
+
+## Overview
+
+The Incrementor contract demonstrates cross-chain messaging by incrementing a counter on a destination chain from a source chain. It showcases the BridgeAppBase pattern for building cross-chain applications.
+
+**Contract Location**: `contracts/examples/Incrementor.sol`
+
+## How It Works
+
+<Steps>
+  <Step title="Deploy on Both Chains">
+    Deploy the Incrementor contract on both source and destination chains.
+  </Step>
+  
+  <Step title="Configure Cross-Chain Addresses">
+    Tell each contract about its counterpart on the other chain.
+  </Step>
+  
+  <Step title="Send Message">
+    Call `send()` on the source chain to trigger an increment on the destination chain.
+  </Step>
+  
+  <Step title="Message Bridged">
+    The message is validated by oracles and executed on the destination chain.
+  </Step>
+  
+  <Step title="Counter Incremented">
+    The `claimedTimes` counter is incremented on the destination chain.
+  </Step>
+</Steps>
+
+## Contract Code
+
+```solidity Incrementor.sol
+contract Incrementor is BridgeAppBase {
+    uint256 public claimedTimes;
+    
+    function send(bytes memory _data) external payable {
+        // Send message to destination chain
+        bytes32 submissionId = debridgeGate.sendMessage{value: msg.value}(
+            chainIdTo,
+            abi.encodePacked(addressTo),
+            abi.encodeWithSelector(this.onBridgedMessage.selector, _data)
+        );
+        
+        emit Sent(submissionId, msg.sender);
+    }
+    
+    function onBridgedMessage(bytes calldata _data) 
+        external 
+        onlyControllingAddress 
+        whenNotPaused 
+        returns (bool) 
+    {
+        claimedTimes++;
+        emit Claimed(_data);
+        return true;
+    }
+}
+```
+
+## Deployment Steps
+
+### 1. Deploy Contracts
+
+```bash Deploy on Testnet
+# Deploy on BSC Testnet
+yarn hardhat run --network bsctest examples/src/incrementorScripts/deploy.ts
+
+# Deploy on Kovan (or another testnet)
+yarn hardhat run --network kovan examples/src/incrementorScripts/deploy.ts
+```
+
+Save the proxy addresses printed in the console.
+
+### 2. Configure Addresses
+
+Update `examples/src/incrementorScripts/constants.ts` with deployed addresses:
+
+```typescript constants.ts
+export const INCREMENTOR_ADDRESS_ON_BSC_TEST = "0x...";
+export const INCREMENTOR_ADDRESS_ON_KOVAN = "0x...";
+```
+
+### 3. Link Contracts
+
+```bash Link Contracts
+# Tell BSC contract about Kovan contract
+yarn hardhat run --network bsctest examples/src/incrementorScripts/setContractAddressOnChainId.ts
+
+# Tell Kovan contract about BSC contract
+yarn hardhat run --network kovan examples/src/incrementorScripts/addControllingAddress.ts
+```
+
+## Sending a Message
+
+```bash Send Cross-Chain Message
+yarn hardhat run --network bsctest examples/src/incrementorScripts/send.ts
+```
+
+This will:
+1. Call `send()` on BSC testnet
+2. Emit a `Sent` event with submissionId
+3. Oracles observe and sign the message
+4. Message is executed on Kovan
+5. `claimedTimes` is incremented
+
+## Tracking the Transaction
+
+Use the deBridge explorer to track your cross-chain transaction:
+
+- **Testnet**: https://testnet-explorer.debridge.finance/
+- **Mainnet**: https://mainnet-explorer.debridge.finance/
+
+Enter the transaction hash or submissionId to see the status.
+
+## Verifying the Result
+
+```bash Check Counter Value
+yarn hardhat run --network kovan examples/src/incrementorScripts/getClaimedTimesOnReceivingChain.ts
+```
+
+You should see the `claimedTimes` value has increased.
+
+## Key Concepts
+
+### BridgeAppBase Pattern
+
+The Incrementor extends `BridgeAppBase`, which provides:
+
+- **Access Control**: Only authorized cross-chain addresses can call functions
+- **Chain Mapping**: Track which addresses on which chains are allowed
+- **Pausability**: Emergency pause functionality
+
+### onlyControllingAddress Modifier
+
+```solidity Security Pattern
+modifier onlyControllingAddress() {
+    // Verify caller is CallProxy
+    require(msg.sender == address(callProxy), "Only CallProxy");
+    
+    // Get cross-chain context
+    uint256 chainIdFrom = callProxy.submissionChainIdFrom();
+    bytes memory sender = callProxy.submissionNativeSender();
+    
+    // Verify sender is authorized
+    require(isControllingAddress(chainIdFrom, sender), "Unauthorized");
+    _;
+}
+```
+
+This ensures only the authorized contract on the source chain can trigger functions.
+
+## Using the Live Example
+
+There's a deployed Incrementor contract on BSC testnet:
+- **Address**: `0x375675FD702DAeeD35AEBc4fe613D3b088571644`
+- **BSCscan**: https://testnet.bscscan.com/address/0x375675FD702DAeeD35AEBc4fe613D3b088571644
+
+You can call the `send()` function directly from BSCscan to see cross-chain messaging in action.
+
+<Tip>
+  Include an execution fee in `msg.value` so keepers automatically claim your transaction on the destination chain.
+</Tip>
+
+## Common Issues
+
+<Accordion title="Message not executed on destination">
+  
+  **Possible causes:**
+  - Insufficient execution fee
+  - Contracts not properly linked
+  - Destination chain not supported
+  
+  **Solution:**
+  - Check submissionId in explorer
+  - Verify contract configuration with `getContractAddressOnChainId()`
+  - Manually claim if execution fee was 0
+  
+</Accordion>
+
+<Accordion title="Transaction reverts">
+  
+  **Possible causes:**
+  - `onBridgedMessage` not public/external
+  - Missing `onlyControllingAddress` modifier
+  - Insufficient gas limit
+  
+  **Solution:**
+  - Review contract implementation
+  - Check function visibility
+  - Increase execution fee for more gas
+  
+</Accordion>
+
+## Related Examples
+
+<CardGroup cols={2}>
+  <Card title="Sending ETH" icon="ethereum" href="/examples/sending-eth">
+    Transfer native tokens cross-chain
+  </Card>
+  <Card title="Cross-Chain Calls" icon="message" href="/integration/cross-chain-calls">
+    Advanced cross-chain patterns
+  </Card>
+</CardGroup>

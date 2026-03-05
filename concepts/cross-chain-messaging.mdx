@@ -1,0 +1,587 @@
+---
+title: Cross-Chain Messaging
+description: Send arbitrary data and execute smart contract calls across different blockchains
+---
+
+# Cross-Chain Messaging
+
+One of deBridge Protocol's most powerful features is the ability to send **arbitrary data** and execute **smart contract calls** across different blockchains. This enables true cross-chain composability.
+
+## Overview
+
+Cross-chain messaging allows you to:
+
+<CardGroup cols={2}>
+  <Card title="Data Transfer" icon="database">
+    Send any arbitrary data from one chain to another without asset transfers
+  </Card>
+  
+  <Card title="Contract Calls" icon="code">
+    Execute function calls on destination chain contracts automatically
+  </Card>
+  
+  <Card title="Composability" icon="puzzle-piece">
+    Build complex cross-chain applications by composing multiple protocols
+  </Card>
+  
+  <Card title="Sender Context" icon="user">
+    Access original sender address and source chain ID in destination contract
+  </Card>
+</CardGroup>
+
+## sendMessage Function
+
+The primary method for cross-chain messaging is `sendMessage()`:
+
+### Simple Version
+
+```solidity contracts/interfaces/IDeBridgeGate.sol:100-104
+function sendMessage(
+    uint256 _dstChainId,
+    bytes memory _targetContractAddress,
+    bytes memory _targetContractCalldata
+) external payable returns (bytes32 submissionId);
+```
+
+This simple version uses default flags:
+- `REVERT_IF_EXTERNAL_FAIL`: Revert if the destination call fails
+- `PROXY_WITH_SENDER`: Store sender context for destination contract
+
+### Advanced Version
+
+```solidity contracts/interfaces/IDeBridgeGate.sol:120-126
+function sendMessage(
+    uint256 _dstChainId,
+    bytes memory _targetContractAddress,
+    bytes memory _targetContractCalldata,
+    uint256 _flags,        // Custom execution flags
+    uint32 _referralCode   // Referral tracking
+) public payable returns (bytes32 submissionId);
+```
+
+## How It Works
+
+<Steps>
+  <Step title="Prepare Message">
+    Encode the function call you want to execute on the destination chain:
+    
+    ```solidity
+    bytes memory targetCalldata = abi.encodeWithSignature(
+        "updateState(uint256,address)",
+        newValue,
+        targetAddress
+    );
+    ```
+  </Step>
+  
+  <Step title="Send Message">
+    Call `sendMessage()` with native token for fees and execution:
+    
+    ```solidity
+    bytes32 submissionId = deBridgeGate.sendMessage{value: executionFee}(
+        destinationChainId,
+        abi.encodePacked(targetContractAddress),
+        targetCalldata
+    );
+    ```
+    
+    **Implementation** (contracts/transfers/DeBridgeGate.sol:178-226):
+    ```solidity
+    function sendMessage(
+        uint256 _chainIdTo,
+        bytes memory _targetContractAddress,
+        bytes memory _targetContractCalldata
+    ) external payable returns (bytes32 submissionId) {
+        // Validate parameters
+        if (_targetContractAddress.length == 0 || _targetContractCalldata.length == 0) {
+            revert WrongAutoArgument();
+        }
+        
+        // Process as zero-amount transfer with all value as execution fee
+        (uint256 amountAfterFee, bytes32 debridgeId, FeeParams memory feeParams) = _send(
+            "",          // no permit
+            address(0),  // native currency
+            0,           // zero amount bridged
+            _chainIdTo,
+            false
+        );
+        
+        // Set up auto-execution parameters
+        SubmissionAutoParamsTo memory autoParams;
+        autoParams.executionFee = amountAfterFee;  // All funds go to executor
+        autoParams.flags = _flags;
+        autoParams.fallbackAddress = _targetContractAddress;
+        autoParams.data = _targetContractCalldata;
+        
+        return _publishSubmission(...);
+    }
+    ```
+  </Step>
+  
+  <Step title="Validators Sign">
+    Validators monitor the `Sent` event and sign the message after validation
+  </Step>
+  
+  <Step title="Claim on Destination">
+    Keeper or user calls `claim()` on destination with validator signatures
+  </Step>
+  
+  <Step title="Execute via CallProxy">
+    CallProxy executes the function call on the target contract:
+    
+    ```solidity
+    // CallProxy calls target contract
+    (bool success, ) = _receiver.call{gas: safeTxGas}(_data);
+    
+    if (!success && _flags.getFlag(Flags.REVERT_IF_EXTERNAL_FAIL)) {
+        revert ExternalCallFailed();
+    }
+    ```
+    
+    *Source: contracts/periphery/CallProxy.sol:74-102*
+  </Step>
+</Steps>
+
+## Execution Flags
+
+Flags control message execution behavior:
+
+```solidity contracts/libraries/Flags.sol:4-20
+library Flags {
+    uint256 public constant UNWRAP_ETH = 0;                    // Unwrap WETH to native ETH
+    uint256 public constant REVERT_IF_EXTERNAL_FAIL = 1;       // Revert if call fails
+    uint256 public constant PROXY_WITH_SENDER = 2;             // Store sender context
+    uint256 public constant SEND_HASHED_DATA = 3;              // Data is pre-hashed
+    uint256 public constant SEND_EXTERNAL_CALL_GAS_LIMIT = 4; // First 4 bytes = gas limit
+    uint256 public constant MULTI_SEND = 5;                    // Batch multiple calls
+}
+```
+
+### Flag Usage Examples
+
+<Tabs>
+  <Tab title="REVERT_IF_EXTERNAL_FAIL">
+    Controls whether to revert the entire transaction if the destination call fails:
+    
+    ```solidity
+    // Revert if call fails (default for simple sendMessage)
+    uint256 flags = Flags.setFlag(0, Flags.REVERT_IF_EXTERNAL_FAIL, true);
+    
+    // Or continue and send funds to fallback address
+    uint256 flags = Flags.setFlag(0, Flags.REVERT_IF_EXTERNAL_FAIL, false);
+    ```
+  </Tab>
+  
+  <Tab title="PROXY_WITH_SENDER">
+    Store sender context so destination contract can access it:
+    
+    ```solidity
+    uint256 flags = Flags.setFlag(0, Flags.PROXY_WITH_SENDER, true);
+    
+    // Destination contract can then access:
+    // ICallProxy(msg.sender).submissionChainIdFrom()
+    // ICallProxy(msg.sender).submissionNativeSender()
+    ```
+  </Tab>
+  
+  <Tab title="UNWRAP_ETH">
+    Automatically unwrap WETH to native ETH on destination:
+    
+    ```solidity
+    uint256 flags = 0;
+    flags = Flags.setFlag(flags, Flags.UNWRAP_ETH, true);
+    flags = Flags.setFlag(flags, Flags.REVERT_IF_EXTERNAL_FAIL, true);
+    ```
+  </Tab>
+  
+  <Tab title="SEND_EXTERNAL_CALL_GAS_LIMIT">
+    Specify gas limit for the external call:
+    
+    ```solidity
+    uint256 flags = Flags.setFlag(0, Flags.SEND_EXTERNAL_CALL_GAS_LIMIT, true);
+    
+    // Prepend gas limit (4 bytes) to calldata
+    bytes memory calldataWithGas = abi.encodePacked(
+        uint32(500000),  // Gas limit
+        targetCalldata
+    );
+    ```
+  </Tab>
+  
+  <Tab title="MULTI_SEND">
+    Execute multiple calls in a single transaction:
+    
+    ```solidity
+    uint256 flags = Flags.setFlag(0, Flags.MULTI_SEND, true);
+    
+    // Encode multiple transactions
+    // See MultiSendCallOnly contract for encoding format
+    ```
+  </Tab>
+</Tabs>
+
+## CallProxy Contract
+
+The CallProxy contract executes external calls on the destination chain.
+
+### Accessing Sender Context
+
+When `PROXY_WITH_SENDER` flag is set, destination contracts can access:
+
+```solidity Example: Reading Sender Context
+contract MyDestinationContract {
+    function handleCrossChainCall(uint256 value) external {
+        // Verify caller is CallProxy
+        require(msg.sender == callProxyAddress, "Not CallProxy");
+        
+        // Get original sender from source chain
+        ICallProxy callProxy = ICallProxy(msg.sender);
+        uint256 sourceChainId = callProxy.submissionChainIdFrom();
+        bytes memory nativeSender = callProxy.submissionNativeSender();
+        address originalSender = abi.decode(nativeSender, (address));
+        
+        // Now you can use originalSender for access control
+        require(originalSender == authorizedAddress, "Not authorized");
+        
+        // Process the call
+        processValue(value);
+    }
+}
+```
+
+### CallProxy Interface
+
+```solidity contracts/interfaces/ICallProxy.sol
+interface ICallProxy {
+    // Context accessors
+    function submissionChainIdFrom() external view returns (uint256);
+    function submissionNativeSender() external view returns (bytes memory);
+    
+    // Execution functions (called by DeBridgeGate)
+    function call(
+        address _reserveAddress,
+        address _receiver,
+        bytes memory _data,
+        uint256 _flags,
+        bytes memory _nativeSender,
+        uint256 _chainIdFrom
+    ) external payable returns (bool);
+    
+    function callERC20(
+        address _token,
+        address _reserveAddress,
+        address _receiver,
+        bytes memory _data,
+        uint256 _flags,
+        bytes memory _nativeSender,
+        uint256 _chainIdFrom
+    ) external returns (bool);
+}
+```
+
+## Message with Asset Transfer
+
+You can combine asset transfers with contract calls:
+
+```solidity Example: Transfer Tokens and Execute Swap
+function bridgeAndSwap(
+    address tokenIn,
+    uint256 amountIn,
+    address tokenOut,
+    uint256 minAmountOut,
+    uint256 destinationChainId
+) external payable {
+    // Prepare swap call on destination
+    bytes memory swapCalldata = abi.encodeWithSignature(
+        "swap(address,address,uint256,uint256)",
+        tokenIn,
+        tokenOut,
+        amountIn,  // Will be available in CallProxy
+        minAmountOut
+    );
+    
+    // Set up auto-execution parameters
+    SubmissionAutoParamsTo memory autoParams = SubmissionAutoParamsTo({
+        executionFee: 0.01 ether,
+        flags: Flags.setFlag(
+            Flags.setFlag(0, Flags.REVERT_IF_EXTERNAL_FAIL, true),
+            Flags.PROXY_WITH_SENDER,
+            true
+        ),
+        fallbackAddress: abi.encodePacked(msg.sender),
+        data: swapCalldata
+    });
+    
+    // Approve and send
+    IERC20(tokenIn).approve(address(deBridgeGate), amountIn);
+    
+    deBridgeGate.send{value: msg.value}(  // msg.value covers fees + execution
+        tokenIn,
+        amountIn,
+        destinationChainId,
+        abi.encodePacked(swapContractAddress),
+        "",
+        false,
+        0,
+        abi.encode(autoParams)
+    );
+}
+```
+
+## Fallback Mechanism
+
+If the destination call fails, assets are sent to the fallback address:
+
+```solidity contracts/periphery/CallProxy.sol:105-138
+function callERC20(
+    address _token,
+    address _reserveAddress,  // Fallback address
+    address _receiver,
+    bytes memory _data,
+    uint256 _flags,
+    bytes memory _nativeSender,
+    uint256 _chainIdFrom
+) external returns (bool _result) {
+    uint256 amount = IERC20Upgradeable(_token).balanceOf(address(this));
+    
+    if (_receiver != address(0)) {
+        _customApprove(IERC20Upgradeable(_token), _receiver, amount);
+    }
+    
+    // Attempt external call
+    _result = _externalCall(_receiver, 0, _data, _nativeSender, _chainIdFrom, _flags);
+    
+    amount = IERC20Upgradeable(_token).balanceOf(address(this));
+    
+    if (!_result && _flags.getFlag(Flags.REVERT_IF_EXTERNAL_FAIL)) {
+        revert ExternalCallFailed();
+    }
+    
+    // Send remaining tokens to fallback/reserve address
+    if (amount > 0) {
+        IERC20Upgradeable(_token).safeTransfer(_reserveAddress, amount);
+    }
+}
+```
+
+## Gas Considerations
+
+### Execution Fee
+
+You must include enough native token to cover:
+
+1. **Protocol Fixed Fee**: Base fee for the transfer
+2. **Execution Gas**: Gas needed to execute the destination call
+3. **Keeper Incentive**: Reward for the keeper who executes the claim
+
+```solidity
+// Calculate total required value
+uint256 protocolFee = deBridgeGate.globalFixedNativeFee();
+uint256 estimatedGas = 300000; // Estimate for your function
+uint256 gasPrice = 50 gwei;     // Current gas price on destination
+uint256 executionFee = estimatedGas * gasPrice;
+uint256 keeperIncentive = 0.001 ether;
+
+uint256 totalRequired = protocolFee + executionFee + keeperIncentive;
+
+deBridgeGate.sendMessage{value: totalRequired}(...);
+```
+
+### Gas Limit Flag
+
+You can specify exact gas limit using the `SEND_EXTERNAL_CALL_GAS_LIMIT` flag:
+
+```solidity
+uint256 flags = Flags.setFlag(0, Flags.SEND_EXTERNAL_CALL_GAS_LIMIT, true);
+
+// Prepend 4-byte gas limit to calldata
+bytes memory calldataWithGas = abi.encodePacked(
+    uint32(500000),      // Gas limit for external call
+    targetCalldata
+);
+
+deBridgeGate.sendMessage{value: msg.value}(
+    destinationChainId,
+    targetAddress,
+    calldataWithGas,
+    flags,
+    0
+);
+```
+
+## Multi-Send Pattern
+
+Execute multiple calls atomically on the destination:
+
+```solidity Example: Multi-Send
+function multiSendExample() external payable {
+    // Encode multiple transactions
+    bytes memory transactions = abi.encodePacked(
+        // Transaction 1: Call contract A
+        uint8(0),                    // operation (0 = call)
+        address(contractA),          // to
+        uint256(0),                  // value
+        uint256(calldataA.length),   // data length
+        calldataA,                   // data
+        
+        // Transaction 2: Call contract B
+        uint8(0),
+        address(contractB),
+        uint256(0),
+        uint256(calldataB.length),
+        calldataB
+    );
+    
+    uint256 flags = Flags.setFlag(0, Flags.MULTI_SEND, true);
+    
+    deBridgeGate.sendMessage{value: msg.value}(
+        destinationChainId,
+        abi.encodePacked(address(0)),  // Will call CallProxy.multiSend
+        transactions,
+        flags,
+        0
+    );
+}
+```
+
+<Warning>
+  Multi-send will revert if any individual call fails. All calls are executed atomically.
+</Warning>
+
+## Example: Cross-Chain NFT Minting
+
+```solidity Example: Cross-Chain NFT Mint
+contract CrossChainNFTMinter {
+    IDeBridgeGate public deBridgeGate;
+    
+    constructor(address _deBridgeGate) {
+        deBridgeGate = IDeBridgeGate(_deBridgeGate);
+    }
+    
+    // Source chain: Initiate cross-chain mint
+    function mintOnAnotherChain(
+        uint256 destinationChainId,
+        address nftContract,
+        address recipient,
+        uint256 tokenId,
+        string memory tokenURI
+    ) external payable {
+        // Prepare mint calldata
+        bytes memory mintCalldata = abi.encodeWithSignature(
+            "mintCrossChain(address,uint256,string)",
+            recipient,
+            tokenId,
+            tokenURI
+        );
+        
+        // Send message
+        deBridgeGate.sendMessage{value: msg.value}(
+            destinationChainId,
+            abi.encodePacked(nftContract),
+            mintCalldata
+        );
+    }
+}
+
+// Destination chain: Receive and mint
+contract CrossChainNFT is ERC721 {
+    address public callProxyAddress;
+    mapping(uint256 => bool) public authorizedChains;
+    
+    constructor(address _callProxy) ERC721("CrossChainNFT", "CCNFT") {
+        callProxyAddress = _callProxy;
+    }
+    
+    function mintCrossChain(
+        address recipient,
+        uint256 tokenId,
+        string memory tokenURI
+    ) external {
+        // Verify caller is CallProxy
+        require(msg.sender == callProxyAddress, "Not CallProxy");
+        
+        // Get source chain
+        ICallProxy callProxy = ICallProxy(msg.sender);
+        uint256 sourceChain = callProxy.submissionChainIdFrom();
+        require(authorizedChains[sourceChain], "Chain not authorized");
+        
+        // Mint NFT
+        _mint(recipient, tokenId);
+        _setTokenURI(tokenId, tokenURI);
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Include Fallback Address">
+    Specify a fallback address to receive assets if the call fails:
+    
+    ```solidity
+    autoParams.fallbackAddress = abi.encodePacked(msg.sender);
+    ```
+  </Accordion>
+  
+  <Accordion title="Validate Caller in Destination">
+    Always verify the call comes from CallProxy:
+    
+    ```solidity
+    require(msg.sender == expectedCallProxy, "Invalid caller");
+    ```
+  </Accordion>
+  
+  <Accordion title="Estimate Gas Generously">
+    Overestimate execution fee to ensure claim succeeds:
+    
+    ```solidity
+    uint256 executionFee = estimatedGas * gasPrice * 120 / 100; // 20% buffer
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle Sender Context Carefully">
+    Decode sender bytes properly for your chain type:
+    
+    ```solidity
+    bytes memory senderBytes = callProxy.submissionNativeSender();
+    address sender = abi.decode(senderBytes, (address));  // For EVM
+    ```
+  </Accordion>
+  
+  <Accordion title="Test Failure Scenarios">
+    Test both successful execution and failure cases to ensure fallback works correctly.
+  </Accordion>
+</AccordionGroup>
+
+## Events
+
+```solidity
+// Emitted when cross-chain call is executed
+event AutoRequestExecuted(
+    bytes32 submissionId,
+    bool indexed success,
+    address callProxy
+);
+```
+
+Monitor this event to track execution status on the destination chain.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Integration: Cross-Chain Calls" icon="code" href="/integration/cross-chain-calls">
+    Practical implementation guide with examples
+  </Card>
+  
+  <Card title="BridgeAppBase Pattern" icon="layer-group" href="/integration/bridgeappbase">
+    Advanced pattern for complex cross-chain applications
+  </Card>
+  
+  <Card title="Fee Structure" icon="dollar-sign" href="/concepts/fees">
+    Understanding execution fees and optimization
+  </Card>
+  
+  <Card title="Asset Transfers" icon="exchange" href="/concepts/transfers">
+    Combine messaging with asset transfers
+  </Card>
+</CardGroup>

@@ -1,0 +1,346 @@
+---
+title: "Contract Deployment"
+description: "Deploy deBridge contracts to testnets and mainnet"
+---
+
+## Overview
+
+deBridge contracts use Hardhat Deploy for deterministic, upgradeable deployments across multiple networks.
+
+## Deployment Scripts
+
+Deployment scripts are located in `scripts/deploy/`:
+
+```
+scripts/deploy/
+├── 00_external.js                 # External dependencies
+├── 01-0_DeBridgeGate.js            # Main gate contract
+├── 01-1_DeBridgeToken.js           # Token implementation
+├── 01-2_DeBridgeTokenDeployer.js   # Token deployer
+├── 02_SignatureVerifier.js        # Signature verifier
+├── 03_CallProxy.js                # Call proxy
+├── 04_FeeProxy.js                 # Fee proxy
+├── 05_wethGate.js                 # WETH gate
+├── 06_DeBridgeGateSetup.js        # Gate configuration
+├── 07_DeBridgeTokenDeployerSetup.js
+├── 08_SignatureVerifierSetup.js
+└── 09_transfer_admin_role.js      # Admin role transfer
+```
+
+## Deploying to Testnet
+
+<Steps>
+  <Step title="Configure Network">
+    Update `hardhat.config.ts` with network details:
+    
+    ```typescript hardhat.config.ts
+    networks: {
+        goerli: {
+            url: process.env.GOERLI_RPC_URL,
+            accounts: [process.env.DEPLOYER_PRIVATE_KEY],
+            chainId: 5
+        },
+        bsctest: {
+            url: 'https://data-seed-prebsc-1-s1.binance.org:8545',
+            accounts: [process.env.DEPLOYER_PRIVATE_KEY],
+            chainId: 97
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="Fund Deployer Wallet">
+    Ensure your deployer wallet has enough native tokens for gas:
+    
+    - **Goerli**: Get ETH from https://goerlifaucet.com/
+    - **BSC Testnet**: Get BNB from https://testnet.binance.org/faucet-smart
+    - **Mumbai**: Get MATIC from https://faucet.polygon.technology/
+  </Step>
+  
+  <Step title="Run Deployment">
+    Deploy all contracts:
+    
+    ```bash Deploy to Goerli
+    yarn hardhat deploy --network goerli
+    ```
+    
+    Or deploy specific scripts:
+    
+    ```bash Deploy Specific Contracts
+    yarn hardhat deploy --network goerli --tags DeBridgeGate
+    ```
+  </Step>
+  
+  <Step title="Verify Deployment">
+    Check deployed addresses:
+    
+    ```bash
+    yarn hardhat run scripts/verify-deployment.js --network goerli
+    ```
+  </Step>
+</Steps>
+
+## Deployment Configuration
+
+### Environment Variables
+
+```bash .env
+# Deployer
+DEPLOYER_PRIVATE_KEY=0x...
+MULTISIG_ACCOUNT=0x...           # For admin role transfer
+
+# Network RPCs
+GOERLI_RPC_URL=https://...
+BSC_TESTNET_RPC_URL=https://...
+POLYGON_MUMBAI_RPC_URL=https://...
+
+# Block Explorers
+ETHERSCAN_API_KEY=...
+BSCSCAN_API_KEY=...
+POLYGONSCAN_API_KEY=...
+
+# Protocol Parameters
+EXCESS_CONFIRMATIONS=5
+GLOBAL_FIXED_NATIVE_FEE=1000000000000000  # 0.001 ETH in wei
+GLOBAL_TRANSFER_FEE_BPS=10                 # 0.1%
+```
+
+### Deployment Parameters
+
+Edit deployment scripts to customize:
+
+```javascript 06_DeBridgeGateSetup.js
+module.exports = async ({ getNamedAccounts, deployments }) => {
+    const { deploy } = deployments;
+    const { deployer } = await getNamedAccounts();
+    
+    const debridgeGate = await deployments.get('DeBridgeGate');
+    
+    // Set global fees
+    await debridgeGate.updateGlobalFee(
+        ethers.utils.parseEther('0.001'),  // Fixed fee
+        10                                   // 0.1% transfer fee
+    );
+    
+    // Configure supported chains
+    await debridgeGate.updateChainSupport(
+        56,     // BSC
+        true,   // Supported
+        true    // Can receive from this chain
+    );
+};
+```
+
+## Upgrading Contracts
+
+DeBridgeGate and other core contracts are upgradeable using OpenZeppelin's transparent proxy pattern.
+
+### Upgrade Process
+
+```bash
+# Deploy new implementation
+yarn hardhat run scripts/upgrade/upgrade-gate.js --network goerli
+```
+
+### Upgrade Script Example
+
+```javascript upgrade-gate.js
+const { ethers, upgrades } = require('hardhat');
+
+async function main() {
+    const proxyAddress = '0x...'; // Current proxy address
+    
+    const DeBridgeGateV2 = await ethers.getContractFactory('DeBridgeGateV2');
+    
+    console.log('Upgrading DeBridgeGate...');
+    const upgraded = await upgrades.upgradeProxy(proxyAddress, DeBridgeGateV2);
+    
+    console.log('DeBridgeGate upgraded');
+    console.log('New implementation:', await upgrades.erc1967.getImplementationAddress(upgraded.address));
+}
+
+main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+});
+```
+
+<Warning>
+  Always test upgrades on testnet first. Upgrades are irreversible on mainnet.
+</Warning>
+
+## Multi-Chain Deployment
+
+Deploy to multiple networks:
+
+```bash Deploy Across Chains
+# Ethereum
+yarn hardhat deploy --network mainnet --tags core
+
+# BSC
+yarn hardhat deploy --network bsc --tags core
+
+# Polygon
+yarn hardhat deploy --network polygon --tags core
+
+# Arbitrum
+yarn hardhat deploy --network arbitrum --tags core
+```
+
+### Coordinating Multi-Chain Setup
+
+After deploying on all chains, configure cross-chain support:
+
+```javascript configure-chains.js
+// On Ethereum
+await debridgeGateEth.updateChainSupport(56, true, true);   // BSC
+await debridgeGateEth.updateChainSupport(137, true, true);  // Polygon
+
+// On BSC
+await debridgeGateBsc.updateChainSupport(1, true, true);    // Ethereum
+await debridgeGateBsc.updateChainSupport(137, true, true);  // Polygon
+
+// Repeat for each chain...
+```
+
+## Deployment Checklist
+
+<Steps>
+  <Step title="Pre-Deployment">
+    - [ ] Contracts audited
+    - [ ] Tests passing with 100% coverage
+    - [ ] Network configuration verified
+    - [ ] Deployer wallet funded
+    - [ ] Multisig wallet configured
+  </Step>
+  
+  <Step title="Deployment">
+    - [ ] Deploy external dependencies (WETH, etc.)
+    - [ ] Deploy core contracts
+    - [ ] Deploy periphery contracts
+    - [ ] Configure contract parameters
+    - [ ] Transfer admin role to multisig
+  </Step>
+  
+  <Step title="Post-Deployment">
+    - [ ] Verify contracts on block explorers
+    - [ ] Test basic functionality
+    - [ ] Configure oracle network
+    - [ ] Enable supported chains
+    - [ ] Add initial asset support
+    - [ ] Monitor first transactions
+  </Step>
+</Steps>
+
+## Mainnet Deployment
+
+<Warning>
+  Mainnet deployment requires extreme caution. Triple-check all parameters and have multiple team members review.
+</Warning>
+
+### Additional Mainnet Steps
+
+1. **Security Review**: Have contracts audited by reputable firms
+2. **Testnet Validation**: Deploy and test on all testnets for at least 1 week
+3. **Emergency Procedures**: Document pause and recovery procedures
+4. **Monitoring**: Set up alerting for key events and metrics
+5. **Multisig Setup**: Use Gnosis Safe with multiple signers
+6. **Time Delays**: Consider adding time delays for admin operations
+
+```bash Mainnet Deployment
+# Final checks
+yarn hardhat compile
+yarn test
+yarn coverage
+
+# Deploy
+yarn hardhat deploy --network mainnet
+
+# Verify immediately
+yarn hardhat run scripts/verify-all.js --network mainnet
+```
+
+## Verification
+
+After deployment, verify contract source code on block explorers.
+
+<Tabs>
+  <Tab title="Automatic">
+    ```bash
+    yarn hardhat verify --network goerli DEPLOYED_ADDRESS "Constructor Arg 1" "Arg 2"
+    ```
+  </Tab>
+  
+  <Tab title="Manual">
+    1. Go to block explorer (Etherscan, BSCscan, etc.)
+    2. Find your contract
+    3. Click "Contract" tab
+    4. Click "Verify and Publish"
+    5. Select "Solidity (Single File)"
+    6. Paste flattened source code
+    7. Enter compiler version and settings
+    8. Submit
+  </Tab>
+</Tabs>
+
+See [Contract Verification guide](/development/verification) for detailed instructions.
+
+## Troubleshooting
+
+<Accordion title="Deployment fails with 'nonce too low'">
+  
+  Transaction nonce is out of sync.
+  
+  **Solution**:
+  ```bash
+  yarn hardhat clean
+  # Try deployment again
+  ```
+  
+</Accordion>
+
+<Accordion title="Insufficient funds for gas">
+  
+  Deployer wallet needs more native tokens.
+  
+  **Solution**: Send more ETH/BNB/MATIC to deployer address.
+  
+</Accordion>
+
+<Accordion title="Contract size exceeds 24KB">
+  
+  Contract is too large for deployment.
+  
+  **Solutions**:
+  - Enable optimizer with higher runs:
+    ```javascript
+    solidity: {
+      settings: {
+        optimizer: {
+          enabled: true,
+          runs: 200
+        }
+      }
+    }
+    ```
+  - Split contract into libraries
+  - Remove unused functions
+  
+</Accordion>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Development Setup" icon="wrench" href="/development/setup">
+    Configure your environment
+  </Card>
+  <Card title="Contract Verification" icon="badge-check" href="/development/verification">
+    Verify deployed contracts
+  </Card>
+  <Card title="Testing" icon="vial" href="/development/testing">
+    Test contracts before deployment
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand the system design
+  </Card>
+</CardGroup>

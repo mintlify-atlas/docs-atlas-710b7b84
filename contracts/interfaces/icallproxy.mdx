@@ -1,0 +1,73 @@
+---
+title: "ICallProxy Interface"
+description: "Interface reference for the CallProxy contract"
+---
+
+## Overview
+
+ICallProxy defines the interface for accessing cross-chain execution context.
+
+**Interface Location**: `contracts/interfaces/ICallProxy.sol`
+
+## View Functions
+
+### submissionChainIdFrom
+
+```solidity
+function submissionChainIdFrom() external view returns (uint256)
+```
+
+Returns the chain ID where the current cross-chain message originated.
+
+### submissionNativeSender
+
+```solidity
+function submissionNativeSender() external view returns (bytes memory)
+```
+
+Returns the original sender address on the source chain (encoded as bytes).
+
+## Usage in Target Contracts
+
+```solidity Accessing Context
+contract CrossChainReceiver {
+    ICallProxy public immutable callProxy;
+    
+    constructor(address _callProxy) {
+        callProxy = ICallProxy(_callProxy);
+    }
+    
+    function handleMessage(uint256 value) external {
+        // Only accept calls through CallProxy
+        require(msg.sender == address(callProxy), "Not from CallProxy");
+        
+        // Get cross-chain context
+        uint256 sourceChain = callProxy.submissionChainIdFrom();
+        bytes memory senderBytes = callProxy.submissionNativeSender();
+        address sender = abi.decode(senderBytes, (address));
+        
+        // Verify authorized sender
+        require(authorizedSenders[sourceChain][sender], "Unauthorized");
+        
+        // Execute logic
+        processValue(value);
+    }
+}
+```
+
+## Security Pattern
+
+<Warning>
+  Always verify that `msg.sender` is the CallProxy contract before trusting the context variables.
+</Warning>
+
+```solidity Security Check
+modifier onlyCallProxy() {
+    require(msg.sender == address(callProxy), "Only CallProxy");
+    _;
+}
+
+function crossChainFunction() external onlyCallProxy {
+    // Safe to use submissionChainIdFrom and submissionNativeSender
+}
+```

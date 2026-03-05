@@ -1,0 +1,104 @@
+---
+title: "DeBridgeTokenDeployer"
+description: "Contract for deploying wrapped deBridge tokens (deTokens)"
+---
+
+## Overview
+
+The DeBridgeTokenDeployer contract is responsible for deploying wrapped tokens (deTokens) that represent assets from other chains. It creates ERC-20 compliant tokens with proxy patterns for upgradeability.
+
+**Contract Location**: `contracts/transfers/DeBridgeTokenDeployer.sol`
+
+## Key Responsibilities
+
+- Deploy new wrapped tokens for cross-chain assets
+- Manage token implementations and proxies
+- Maintain registry of deployed tokens
+- Handle token metadata (name, symbol, decimals)
+
+## Main Functions
+
+### deployNewToken
+
+Deploys a new wrapped token for an asset from another chain.
+
+```solidity
+function deployNewToken(
+    address _originAddress,
+    uint256 _originChainId,
+    string memory _name,
+    string memory _symbol,
+    uint8 _decimals
+) external returns (address)
+```
+
+<ParamField path="_originAddress" type="address" required>
+  Original token address on the source chain
+</ParamField>
+
+<ParamField path="_originChainId" type="uint256" required>
+  Chain ID where the original token exists
+</ParamField>
+
+<ParamField path="_name" type="string" required>
+  Token name (e.g., "deBridge ETH")
+</ParamField>
+
+<ParamField path="_symbol" type="string" required>
+  Token symbol (e.g., "deETH")
+</ParamField>
+
+<ParamField path="_decimals" type="uint8" required>
+  Token decimals (should match original token)
+</ParamField>
+
+<ResponseField name="tokenAddress" type="address">
+  Address of the newly deployed wrapped token
+</ResponseField>
+
+## Token Structure
+
+Each deployed token consists of:
+
+1. **DeBridgeToken Implementation**: The actual token logic
+2. **DeBridgeTokenProxy**: Upgradeable proxy pointing to the implementation
+3. **UpgradeableBeacon**: Manages implementation upgrades
+
+<Info>
+  All wrapped tokens share the same implementation through a beacon proxy pattern, making upgrades efficient.
+</Info>
+
+## Integration Example
+
+```solidity Deploy Wrapped Token
+// Called by DeBridgeGate when a new asset is registered
+address wrappedToken = deployer.deployNewToken(
+    0x1234...,              // Original USDC address on Ethereum
+    1,                      // Ethereum chain ID
+    "deBridge USDC",       // Name
+    "deUSDC",              // Symbol
+    6                       // Decimals
+);
+```
+
+## Security Features
+
+<Warning>
+  Only the DeBridgeGate contract can deploy new tokens. This prevents unauthorized token creation.
+</Warning>
+
+- Access controlled deployment
+- Deterministic token addresses
+- Immutable source chain  references
+- Upgradeability through beacon pattern
+
+## Related Contracts
+
+<CardGroup cols={2}>
+  <Card title="DeBridgeToken" icon="coins" href="/contracts/periphery/debridgetoken">
+    ERC-20 implementation for wrapped tokens
+  </Card>
+  <Card title="DeBridgeGate" icon="door-open" href="/contracts/debridgegate">
+    Main bridge contract that uses the deployer
+  </Card>
+</CardGroup>

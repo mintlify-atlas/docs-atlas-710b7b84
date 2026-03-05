@@ -1,0 +1,79 @@
+---
+title: "WethGate"
+description: "Helper contract for handling WETH in upgradeable contracts"
+---
+
+## Overview
+
+WethGate is a non-upgradeable helper contract that receives native ETH and immediately forwards it to upgradeable contracts. This is necessary due to increased SLOAD gas costs after the Istanbul hard fork.
+
+**Contract Location**: `contracts/transfers/WethGate.sol`
+
+## Why WethGate?
+
+Upgradeable contracts using OpenZeppelin's proxy pattern cannot receive ETH via `transfer()` after EIP-1884 (Istanbul hard fork) increased SLOAD gas costs from 200 to 800.
+
+<Note>
+  WethGate acts as a relay: it receives ETH (which has a 2300 gas stipend) and forwards it using `.call{value}()` which has no gas limit.
+</Note>
+
+## Main Function
+
+### withdrawWeth
+
+```solidity
+function withdrawWeth(
+    uint256 _amount,
+    address _receiver
+) external
+```
+
+Unwraps WETH and sends ETH to the receiver.
+
+<ParamField path="_amount" type="uint256" required>
+  Amount of WETH to unwrap
+</ParamField>
+
+<ParamField path="_receiver" type="address" required>
+  Address to receive the unwrapped ETH
+</ParamField>
+
+## Integration Pattern
+
+```solidity Using WethGate
+// In DeBridgeGate contract
+
+// Approve WethGate to spend WETH
+weth.approve(address(wethGate), amount);
+
+// WethGate unwraps and forwards to receiver
+wethGate.withdrawWeth(amount, receiver);
+```
+
+## Technical Background
+
+<Accordion title="EIP-1884 and Gas Costs">
+  
+  The Istanbul hard fork (EIP-1884) increased the gas cost of the SLOAD opcode from 200 to 800 gas. This caused issues for proxy patterns that store implementation addresses in storage.
+  
+  When `.transfer()` sends ETH (with only 2300 gas), the receiving proxy contract doesn't have enough gas to:
+  1. Load implementation address (800 gas)
+  2. Delegate call to implementation  
+  3. Execute receive logic
+  
+  Solution: Use a non-upgradeable relay contract (WethGate) that doesn't use SLOAD.
+  
+</Accordion>
+
+## Security
+
+- Simple, non-upgradeable design
+- No storage variables
+- Only callable by authorized contracts
+- Immediate forwarding of funds
+
+## Further Reading
+
+<Card title="OpenZeppelin Forum Discussion" icon="comments" href="https://forum.openzeppelin.com/t/openzeppelin-upgradeable-contracts-affected-by-istanbul-hardfork/1616">
+  Detailed explanation of the Istanbul hardfork issue
+</Card>

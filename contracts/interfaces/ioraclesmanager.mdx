@@ -1,0 +1,76 @@
+---
+title: "IOraclesManager Interface"
+description: "Interface reference for the OraclesManager contract"
+---
+
+## Overview
+
+IOraclesManager defines the interface for managing the validator network.
+
+**Interface Location**: `contracts/interfaces/IOraclesManager.sol`
+
+## Structs
+
+### OracleInfo
+
+```solidity
+struct OracleInfo {
+    bool exist;
+    bool isValid;
+    bool required;
+}
+```
+
+<ParamField path="exist" type="bool">
+  Whether the oracle has been registered
+</ParamField>
+
+<ParamField path="isValid" type="bool">
+  Whether the oracle is currently active
+</ParamField>
+
+<ParamField path="required" type="bool">
+  Whether this oracle must sign every transaction
+</ParamField>
+
+## Events
+
+### AddOracle
+
+```solidity
+event AddOracle(address oracle, bool required);
+```
+
+Emitted when a new oracle is added to the network.
+
+### UpdateOracle
+
+```solidity
+event UpdateOracle(address oracle, bool required, bool isValid);
+```
+
+Emitted when an oracle's status is updated.
+
+## View Functions
+
+```solidity
+function minConfirmations() external view returns (uint8);
+function excessConfirmations() external view returns (uint8);
+function requiredOraclesCount() external view returns (uint8);
+function oracleAddresses(uint256 index) external view returns (address);
+function getOracleInfo(address oracle) external view returns (OracleInfo memory);
+```
+
+## Integration Example
+
+```solidity Query Oracle Network
+IOraclesManager oraclesManager = IOraclesManager(managerAddress);
+
+// Check oracle status
+IOraclesManager.OracleInfo memory info = oraclesManager.getOracleInfo(oracleAddress);
+require(info.isValid, "Oracle not valid");
+
+// Get confirmation requirements
+uint8 minSigs = oraclesManager.minConfirmations();
+uint8 requiredCount = oraclesManager.requiredOraclesCount();
+```

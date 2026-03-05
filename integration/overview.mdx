@@ -1,0 +1,532 @@
+---
+title: Integration Overview
+description: Start integrating deBridge Protocol into your application - prerequisites, patterns, and getting started
+---
+
+# Integration Overview
+
+Welcome to the deBridge Protocol integration guide. This section will help you integrate cross-chain functionality into your application.
+
+## What Can You Build?
+
+With deBridge Protocol, you can:
+
+<CardGroup cols={2}>
+  <Card title="Cross-Chain Bridges" icon="bridge">
+    Build custom bridges for assets and NFTs with full control over logic and parameters
+  </Card>
+  
+  <Card title="Multi-Chain dApps" icon="network-wired">
+    Create applications that span multiple chains with seamless user experience
+  </Card>
+  
+  <Card title="Cross-Chain DeFi" icon="coins">
+    Enable lending, borrowing, swapping, and yield farming across different blockchains
+  </Card>
+  
+  <Card title="Composable Protocols" icon="puzzle-piece">
+    Build protocols that interact with other protocols across chains
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+Before integrating deBridge, ensure you have:
+
+### Technical Requirements
+
+<Steps>
+  <Step title="Development Environment">
+    - Solidity ^0.8.7 or higher
+    - Hardhat, Foundry, or Truffle
+    - Node.js v16+ for scripts
+    - Git for version control
+  </Step>
+  
+  <Step title="Blockchain Knowledge">
+    - Understanding of EVM and smart contracts
+    - Experience with cross-chain concepts
+    - Familiarity with proxy patterns
+    - Knowledge of signature verification
+  </Step>
+  
+  <Step title="Testing Setup">
+    - Access to testnets (Goerli, BSC Testnet, Mumbai, etc.)
+    - Test tokens and native currency
+    - RPC endpoints for all target chains
+  </Step>
+</Steps>
+
+### Dependencies
+
+Install required packages:
+
+<Tabs>
+  <Tab title="npm">
+    ```bash
+    npm install --save-dev @openzeppelin/contracts-upgradeable
+    npm install --save-dev @openzeppelin/contracts
+    ```
+  </Tab>
+  
+  <Tab title="yarn">
+    ```bash
+    yarn add -D @openzeppelin/contracts-upgradeable
+    yarn add -D @openzeppelin/contracts
+    ```
+  </Tab>
+</Tabs>
+
+## Integration Patterns
+
+deBridge supports multiple integration patterns:
+
+### 1. Direct Integration
+
+Call DeBridgeGate contract directly from your application.
+
+**Best For**: Simple asset transfers, basic cross-chain operations
+
+```solidity Example: Direct Integration
+contract MyDApp {
+    IDeBridgeGate public deBridgeGate;
+    
+    constructor(address _deBridgeGate) {
+        deBridgeGate = IDeBridgeGate(_deBridgeGate);
+    }
+    
+    function bridgeToAnotherChain(
+        address token,
+        uint256 amount,
+        uint256 destChainId,
+        address receiver
+    ) external payable {
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).approve(address(deBridgeGate), amount);
+        
+        deBridgeGate.send{value: msg.value}(
+            token,
+            amount,
+            destChainId,
+            abi.encodePacked(receiver),
+            "",
+            false,
+            0,
+            ""
+        );
+    }
+}
+```
+
+### 2. Cross-Chain Calls
+
+Send messages and execute contract calls on destination chains.
+
+**Best For**: Cross-chain interactions, composable protocols
+
+```solidity Example: Cross-Chain Call
+contract CrossChainExecutor {
+    IDeBridgeGate public deBridgeGate;
+    
+    function executeOnAnotherChain(
+        uint256 destChainId,
+        address targetContract,
+        bytes memory callData
+    ) external payable {
+        deBridgeGate.sendMessage{value: msg.value}(
+            destChainId,
+            abi.encodePacked(targetContract),
+            callData
+        );
+    }
+}
+```
+
+### 3. BridgeAppBase Pattern
+
+Inherit from a base contract that handles cross-chain communication.
+
+**Best For**: Complex applications, multiple cross-chain operations
+
+```solidity Example: BridgeAppBase Pattern
+abstract contract BridgeAppBase {
+    IDeBridgeGate public deBridgeGate;
+    address public callProxy;
+    
+    modifier onlyCallProxy() {
+        require(msg.sender == callProxy, "Not CallProxy");
+        _;
+    }
+    
+    function _sendCrossChainMessage(
+        uint256 destChainId,
+        bytes memory data
+    ) internal {
+        deBridgeGate.sendMessage{value: msg.value}(
+            destChainId,
+            abi.encodePacked(address(this)),
+            data
+        );
+    }
+    
+    function _getOriginalSender() internal view returns (address) {
+        bytes memory senderBytes = ICallProxy(msg.sender).submissionNativeSender();
+        return abi.decode(senderBytes, (address));
+    }
+}
+
+contract MyApp is BridgeAppBase {
+    function processMessage(uint256 value) external onlyCallProxy {
+        address sender = _getOriginalSender();
+        // Process cross-chain message
+    }
+}
+```
+
+## DeBridgeGate Contract Addresses
+
+Connect to DeBridgeGate on supported chains:
+
+<Tabs>
+  <Tab title="Mainnets">
+    ```javascript
+    const DEBRIDGE_GATE_ADDRESSES = {
+        // Ethereum Mainnet
+        1: "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA",
+        // BSC Mainnet  
+        56: "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA",
+        // Polygon Mainnet
+        137: "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA",
+        // Arbitrum One
+        42161: "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA",
+        // Avalanche C-Chain
+        43114: "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA",
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Testnets">
+    ```javascript
+    const DEBRIDGE_GATE_TESTNET_ADDRESSES = {
+        // Goerli
+        5: "0x...",
+        // BSC Testnet
+        97: "0x...",
+        // Mumbai (Polygon Testnet)
+        80001: "0x...",
+    };
+    ```
+    
+    <Note>
+      Contact deBridge team for current testnet addresses
+    </Note>
+  </Tab>
+</Tabs>
+
+## Key Interfaces
+
+Import the main interfaces you'll need:
+
+### IDeBridgeGate
+
+```solidity contracts/interfaces/IDeBridgeGate.sol
+interface IDeBridgeGate {
+    // Send assets
+    function send(
+        address _tokenAddress,
+        uint256 _amount,
+        uint256 _chainIdTo,
+        bytes memory _receiver,
+        bytes memory _permitEnvelope,
+        bool _useAssetFee,
+        uint32 _referralCode,
+        bytes calldata _autoParams
+    ) external payable returns (bytes32 submissionId);
+    
+    // Send message
+    function sendMessage(
+        uint256 _dstChainId,
+        bytes memory _targetContractAddress,
+        bytes memory _targetContractCalldata
+    ) external payable returns (bytes32 submissionId);
+    
+    // Claim on destination
+    function claim(
+        bytes32 _debridgeId,
+        uint256 _amount,
+        uint256 _chainIdFrom,
+        address _receiver,
+        uint256 _nonce,
+        bytes calldata _signatures,
+        bytes calldata _autoParams
+    ) external;
+    
+    // Fee queries
+    function globalFixedNativeFee() external view returns (uint256);
+    function globalTransferFeeBps() external view returns (uint16);
+    function getDebridgeChainAssetFixedFee(
+        bytes32 _debridgeId,
+        uint256 _chainId
+    ) external view returns (uint256);
+}
+```
+
+### ICallProxy
+
+```solidity contracts/interfaces/ICallProxy.sol
+interface ICallProxy {
+    // Get submission context
+    function submissionChainIdFrom() external view returns (uint256);
+    function submissionNativeSender() external view returns (bytes memory);
+}
+```
+
+## Integration Checklist
+
+Before going live, ensure you've completed:
+
+<Steps>
+  <Step title="Contract Development">
+    - [ ] Implement integration pattern
+    - [ ] Add error handling
+    - [ ] Handle fallback scenarios
+    - [ ] Implement access controls
+    - [ ] Add event emissions
+  </Step>
+  
+  <Step title="Testing">
+    - [ ] Unit tests for all functions
+    - [ ] Integration tests on testnets
+    - [ ] Test failure scenarios
+    - [ ] Test with different fee configurations
+    - [ ] Load testing if applicable
+  </Step>
+  
+  <Step title="Security">
+    - [ ] Code review completed
+    - [ ] Audit by reputable firm
+    - [ ] Verify CallProxy sender
+    - [ ] Implement reentrancy guards
+    - [ ] Add pause mechanism
+  </Step>
+  
+  <Step title="Deployment">
+    - [ ] Deploy on testnets first
+    - [ ] Verify on block explorers
+    - [ ] Test end-to-end flow
+    - [ ] Prepare deployment scripts
+    - [ ] Document configuration
+  </Step>
+  
+  <Step title="Monitoring">
+    - [ ] Event monitoring setup
+    - [ ] Alert system configured
+    - [ ] Dashboard for tracking
+    - [ ] Backup procedures
+  </Step>
+</Steps>
+
+## Common Integration Scenarios
+
+### Scenario 1: Simple Token Bridge
+
+Users can bridge tokens between chains:
+
+```solidity
+function bridge(address token, uint256 amount, uint256 destChain) external payable {
+    IERC20(token).transferFrom(msg.sender, address(this), amount);
+    IERC20(token).approve(address(deBridgeGate), amount);
+    
+    deBridgeGate.send{value: msg.value}(
+        token,
+        amount,
+        destChain,
+        abi.encodePacked(msg.sender),
+        "",
+        false,
+        0,
+        ""
+    );
+}
+```
+
+### Scenario 2: Cross-Chain Swap
+
+Bridge tokens and execute swap on destination:
+
+```solidity
+function bridgeAndSwap(
+    address tokenIn,
+    uint256 amountIn,
+    uint256 destChain,
+    address swapRouter,
+    bytes memory swapData
+) external payable {
+    // Setup auto-execution
+    SubmissionAutoParamsTo memory autoParams = SubmissionAutoParamsTo({
+        executionFee: 0.01 ether,
+        flags: Flags.setFlag(0, Flags.REVERT_IF_EXTERNAL_FAIL, true),
+        fallbackAddress: abi.encodePacked(msg.sender),
+        data: swapData
+    });
+    
+    IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
+    IERC20(tokenIn).approve(address(deBridgeGate), amountIn);
+    
+    deBridgeGate.send{value: msg.value}(
+        tokenIn,
+        amountIn,
+        destChain,
+        abi.encodePacked(swapRouter),
+        "",
+        false,
+        0,
+        abi.encode(autoParams)
+    );
+}
+```
+
+### Scenario 3: Cross-Chain Governance
+
+Execute governance decisions across chains:
+
+```solidity
+function executeCrossChainProposal(
+    uint256 destChain,
+    address target,
+    bytes memory proposalCalldata
+) external payable onlyGovernance {
+    deBridgeGate.sendMessage{value: msg.value}(
+        destChain,
+        abi.encodePacked(target),
+        proposalCalldata
+    );
+}
+```
+
+## Error Handling
+
+Handle common errors gracefully:
+
+```solidity Example: Error Handling
+contract RobustIntegration {
+    error InsufficientBalance();
+    error InsufficientFees();
+    error UnsupportedChain();
+    error TransferFailed();
+    
+    function safeBridge(
+        address token,
+        uint256 amount,
+        uint256 destChain
+    ) external payable {
+        // Check balance
+        if (IERC20(token).balanceOf(msg.sender) < amount) {
+            revert InsufficientBalance();
+        }
+        
+        // Check fees
+        uint256 requiredFee = calculateFees(token, amount, destChain);
+        if (msg.value < requiredFee) {
+            revert InsufficientFees();
+        }
+        
+        // Check chain support
+        ChainSupportInfo memory chainInfo = deBridgeGate.getChainToConfig(destChain);
+        if (!chainInfo.isSupported) {
+            revert UnsupportedChain();
+        }
+        
+        // Execute transfer with try/catch
+        try deBridgeGate.send{value: msg.value}(
+            token,
+            amount,
+            destChain,
+            abi.encodePacked(msg.sender),
+            "",
+            false,
+            0,
+            ""
+        ) returns (bytes32 submissionId) {
+            emit BridgeInitiated(msg.sender, token, amount, destChain, submissionId);
+        } catch Error(string memory reason) {
+            revert TransferFailed();
+        }
+    }
+}
+```
+
+## Testing Strategy
+
+### Unit Tests
+
+```javascript Example: Unit Test
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+describe("MyBridge", function () {
+    let bridge, deBridgeGate, token;
+    
+    beforeEach(async function () {
+        // Deploy mocks
+        const MockDeBridgeGate = await ethers.getContractFactory("MockDeBridgeGate");
+        deBridgeGate = await MockDeBridgeGate.deploy();
+        
+        const Token = await ethers.getContractFactory("MockToken");
+        token = await Token.deploy();
+        
+        const Bridge = await ethers.getContractFactory("MyBridge");
+        bridge = await Bridge.deploy(deBridgeGate.address);
+    });
+    
+    it("Should bridge tokens correctly", async function () {
+        const amount = ethers.utils.parseEther("100");
+        const destChain = 56;
+        
+        await token.approve(bridge.address, amount);
+        
+        await expect(
+            bridge.bridge(token.address, amount, destChain, {
+                value: ethers.utils.parseEther("0.01")
+            })
+        ).to.emit(bridge, "BridgeInitiated");
+    });
+});
+```
+
+### Integration Tests
+
+Test on actual testnets with real DeBridgeGate contracts.
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="Sending Assets" icon="paper-plane" href="/integration/sending-assets">
+    Detailed guide on implementing asset transfers
+  </Card>
+  
+  <Card title="Cross-Chain Calls" icon="phone" href="/integration/cross-chain-calls">
+    Learn to execute contract calls across chains
+  </Card>
+  
+  <Card title="BridgeAppBase" icon="layer-group" href="/integration/bridgeappbase">
+    Advanced pattern for complex applications
+  </Card>
+  
+  <Card title="GitHub Examples" icon="github" href="https://github.com/debridge-finance">
+    Browse example contracts and implementations
+  </Card>
+</CardGroup>
+
+## Get Help
+
+Need assistance with your integration?
+
+- **Discord**: [discord.com/invite/debridge](https://discord.com/invite/debridge)
+- **GitHub**: [github.com/debridge-finance](https://github.com/debridge-finance)
+- **Documentation**: [docs.debridge.finance](https://docs.debridge.finance)
+- **Twitter**: [@DebridgeFinance](https://twitter.com/DebridgeFinance)
+
+<Tip>
+  Start with the [Quickstart](/quickstart) guide for a hands-on introduction, then explore specific integration patterns based on your use case.
+</Tip>

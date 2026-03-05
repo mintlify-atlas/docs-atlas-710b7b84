@@ -1,0 +1,367 @@
+---
+title: "Contract Verification"
+description: "Verify deployed contracts on block explorers"
+---
+
+## Overview
+
+Contract verification publishes your source code on block explorers like Etherscan, allowing users to:
+
+- Read contract source code
+- Interact with contracts through the explorer UI
+- Verify contract behavior matches documentation
+- Build trust through transparency
+
+## Prerequisites
+
+Before verifying:
+
+1. **API Keys**: Get API keys from block explorers
+2. **Deployed Contract**: Have the contract address
+3. **Constructor Arguments**: Know the exact constructor parameters used
+4. **Compiler Settings**: Match the settings used during deployment
+
+## Getting API Keys
+
+<Tabs>
+  <Tab title="Etherscan">
+    1. Create account at https://etherscan.io/register
+    2. Go to https://etherscan.io/myapikey
+    3. Create new API key
+    4. Add to `.env`: `ETHERSCAN_API_KEY=YOUR_KEY`
+  </Tab>
+  
+  <Tab title="BSCscan">
+    1. Create account at https://bscscan.com/register
+    2. Go to https://bscscan.com/myapikey
+    3. Create new API key
+    4. Add to `.env`: `BSCSCAN_API_KEY=YOUR_KEY`
+  </Tab>
+  
+  <Tab title="Polygonscan">
+    1. Create account at https://polygonscan.com/register
+    2. Go to https://polygonscan.com/myapikey
+    3. Create new API key
+    4. Add to `.env`: `POLYGONSCAN_API_KEY=YOUR_KEY`
+  </Tab>
+</Tabs>
+
+## Automatic Verification
+
+Using Hardhat's verification plugin:
+
+```bash
+# Verify contract with constructor arguments
+yarn hardhat verify --network goerli DEPLOYED_ADDRESS "ConstructorArg1" "ConstructorArg2"
+```
+
+### Example: Verify DeBridgeGate
+
+```bash Verify DeBridgeGate
+# DeBridgeGate constructor: initialize(uint8 _excessConfirmations, IWETH _weth)
+yarn hardhat verify --network goerli \
+  0x1234...DeployedAddress \
+  5 \
+  0x5678...WETHAddress
+```
+
+### Verify Proxy Contracts
+
+For upgradeable contracts (using OpenZeppelin proxies):
+
+```bash Verify Proxy and Implementation
+# Verify implementation
+yarn hardhat verify --network goerli 0x...ImplementationAddress
+
+# Hardhat automatically detects and verifies the proxy
+yarn hardhat verify --network goerli 0x...ProxyAddress
+```
+
+<Info>
+  Hardhat automatically verifies both proxy and implementation for upgradeable contracts.
+</Info>
+
+## Manual Verification
+
+If automatic verification fails, verify manually through the block explorer:
+
+<Steps>
+  <Step title="Flatten Contract">
+    Create a single file with all imports:
+    
+    ```bash
+    yarn hardhat flatten contracts/transfers/DeBridgeGate.sol > DeBridgeGate_flat.sol
+    ```
+    
+    Remove duplicate SPDX license identifiers (keep only one at the top).
+  </Step>
+  
+  <Step title="Go to Block Explorer">
+    Navigate to your deployed contract:
+    - Etherscan: `https://etherscan.io/address/YOUR_ADDRESS`
+    - BSCscan: `https://bscscan.com/address/YOUR_ADDRESS`
+    - Polygonscan: `https://polygonscan.com/address/YOUR_ADDRESS`
+  </Step>
+  
+  <Step title="Start Verification">
+    Click **Contract** tab, then **Verify and Publish**.
+  </Step>
+  
+  <Step title="Fill Verification Form">
+    - **Compiler Type**: Solidity (Single File) or (Standard Json)
+    - **Compiler Version**: Match your hardhat.config.ts (e.g., v0.8.17)
+    - **License**: BUSL-1.1 or your license
+    - **Paste Source Code**: From flattened file
+  </Step>
+  
+  <Step title="Enter Compiler Settings">
+    Match settings from `hardhat.config.ts`:
+    
+    ```
+    Optimization: Yes
+    Runs: 200
+    EVM Version: london (or default)
+    ```
+  </Step>
+  
+  <Step title="Add Constructor Arguments">
+    If contract has constructor arguments, encode them:
+    
+    ```javascript Encode Constructor Args
+    const ethers = require('ethers');
+    
+    const encoded = ethers.utils.defaultAbiCoder.encode(
+        ['uint8', 'address'],     // Types
+        [5, '0x...wethAddress']   // Values
+    );
+    
+    console.log(encoded.slice(2)); // Remove '0x' prefix
+    ```
+    
+    Paste the encoded hex in the "Constructor Arguments" field.
+  </Step>
+  
+  <Step title="Submit and Verify">
+    Click **Verify and Publish**. If successful, you'll see a success message and the contract source will be visible.
+  </Step>
+</Steps>
+
+## Verification Script
+
+Create a script to verify all contracts:
+
+```javascript scripts/verify-all.js
+const { run, network } = require('hardhat');
+const fs = require('fs');
+
+async function main() {
+    // Load deployment addresses
+    const deployments = JSON.parse(
+        fs.readFileSync(`./deployments/${network.name}/deployments.json`)
+    );
+    
+    const contracts = [
+        {
+            name: 'DeBridgeGate',
+            address: deployments.DeBridgeGate.address,
+            constructorArguments: [
+                deployments.DeBridgeGate.args.excessConfirmations,
+                deployments.WETH.address
+            ]
+        },
+        {
+            name: 'CallProxy',
+            address: deployments.CallProxy.address,
+            constructorArguments: []
+        },
+        // Add more contracts...
+    ];
+    
+    for (const contract of contracts) {
+        console.log(`Verifying ${contract.name}...`);
+        
+        try {
+            await run('verify:verify', {
+                address: contract.address,
+                constructorArguments: contract.constructorArguments
+            });
+            console.log(`✓ ${contract.name} verified`);
+        } catch (error) {
+            if (error.message.includes('Already Verified')) {
+                console.log(`✓ ${contract.name} already verified`);
+            } else {
+                console.error(`✗ ${contract.name} verification failed:`, error.message);
+            }
+        }
+    }
+}
+
+main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+});
+```
+
+Run it:
+
+```bash
+yarn hardhat run scripts/verify-all.js --network goerli
+```
+
+## Verifying Libraries
+
+If your contracts use libraries, verify them first:
+
+```bash Verify Library
+yarn hardhat verify --network goerli 0x...LibraryAddress
+```
+
+Then verify the main contract with library linking:
+
+```bash Verify with Libraries
+yarn hardhat verify --network goerli \
+  --libraries libraries.js \
+  0x...ContractAddress \
+  "ConstructorArg1"
+```
+
+Where `libraries.js` contains:
+
+```javascript libraries.js
+module.exports = {
+  SignatureUtil: "0x...LibraryAddress",
+  Flags: "0x...FlagsAddress"
+};
+```
+
+## Hardhat Configuration
+
+Configure verification in `hardhat.config.ts`:
+
+```typescript hardhat.config.ts
+import '@nomiclabs/hardhat-etherscan';
+
+const config: HardhatUserConfig = {
+  etherscan: {
+    apiKey: {
+      mainnet: process.env.ETHERSCAN_API_KEY,
+      goerli: process.env.ETHERSCAN_API_KEY,
+      bsc: process.env.BSCSCAN_API_KEY,
+      bscTestnet: process.env.BSCSCAN_API_KEY,
+      polygon: process.env.POLYGONSCAN_API_KEY,
+      polygonMumbai: process.env.POLYGONSCAN_API_KEY,
+    }
+  },
+  // ... other config
+};
+```
+
+## Troubleshooting
+
+<Accordion title="Already Verified">
+  
+  Contract is already verified.
+  
+  **Solution**: This is actually success! The contract is already public.
+  
+</Accordion>
+
+<Accordion title="Bytecode does not match">
+  
+  Compiled bytecode doesn't match deployed bytecode.
+  
+  **Common causes**:
+  - Different compiler version
+  - Different optimizer settings
+  - Different Solidity code
+  
+  **Solution**: Match exact compilation settings:
+  1. Check compiler version in `hardhat.config.ts`
+  2. Verify optimizer settings (enabled, runs)
+  3. Ensure source code is identical
+  4. Check if contract is a proxy (verify implementation separately)
+  
+</Accordion>
+
+<Accordion title="Invalid constructor arguments">
+  
+  Constructor arguments are incorrectly encoded.
+  
+  **Solution**: Use ethers to encode:
+  ```javascript
+  const encoded = ethers.utils.defaultAbiCoder.encode(
+      ['uint256', 'address'],  // Exact types
+      [value1, value2]         // Exact values
+  );
+  console.log(encoded);
+  ```
+  
+</Accordion>
+
+<Accordion title="Too many requests">
+  
+  Hit rate limit on block explorer API.
+  
+  **Solution**: Wait 1-2 minutes between verification attempts.
+  
+</Accordion>
+
+<Accordion title="Contract source code not published">
+  
+  Verification succeeded but source not showing.
+  
+  **Solution**: 
+  - Wait a few minutes for indexing
+  - Clear browser cache
+  - Try a different browser
+  - Check if you're on the correct network
+  
+</Accordion>
+
+## Verification Checklist
+
+<Steps>
+  <Step title="Before Verification">
+    - [ ] Contract deployed successfully
+    - [ ] Have deployment transaction hash
+    - [ ] Know exact constructor arguments
+    - [ ] Have API key configured
+  </Step>
+  
+  <Step title="During Verification">
+    - [ ] Compiler version matches deployment
+    - [ ] Optimizer settings match
+    - [ ] License type is correct
+    - [ ] Constructor arguments encoded properly
+  </Step>
+  
+  <Step title="After Verification">
+    - [ ] Source code visible on explorer
+    - [ ] "Read Contract" tab works
+    - [ ] "Write Contract" tab available
+    - [ ] Contract name and functions display correctly
+  </Step>
+</Steps>
+
+## Benefits of Verification
+
+- **Transparency**: Users can review contract logic
+- **Trust**: Proves contract matches documentation
+- **Usability**: Direct interaction through explorer UI
+- **Debugging**: Easier to trace transactions and events
+- **Integration**: Other services can read contract ABI
+
+<Tip>
+  Always verify contracts immediately after deployment while you still have all the deployment details fresh.
+</Tip>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Deployment Guide" icon="rocket" href="/development/deployment">
+    Deploy contracts to networks
+  </Card>
+  <Card title="Development Setup" icon="wrench" href="/development/setup">
+    Configure your environment
+  </Card>
+</CardGroup>

@@ -1,0 +1,87 @@
+---
+title: "SignatureVerifier"
+description: "Contract for verifying oracle signatures on cross-chain transactions"
+---
+
+## Overview
+
+SignatureVerifier validates that cross-chain transactions have been properly signed by the required number of oracles before they can be claimed.
+
+**Contract Location**: `contracts/transfers/SignatureVerifier.sol`
+
+## Key Functions
+
+### submit
+
+Verifies oracle signatures for a submission.
+
+```solidity
+function submit(
+    bytes32 _submissionId,
+    bytes calldata _signatures
+) external view returns (
+    uint256 successCount,
+    bytes memory successOracles
+)
+```
+
+<ParamField path="_submissionId" type="bytes32" required>
+  Unique identifier for the cross-chain submission
+</ParamField>
+
+<ParamField path="_signatures" type="bytes" required>
+  Concatenated oracle signatures (65 bytes each)
+</ParamField>
+
+## Signature Format
+
+Signatures are concatenated ECDSA signatures:
+- **r**: 32 bytes
+- **s**: 32 bytes  
+- **v**: 1 byte (recovery id)
+
+```solidity Example Signature Verification
+// Each signature is 65 bytes
+bytes memory signatures = abi.encodePacked(
+    r1, s1, v1,  // Oracle 1
+    r2, s2, v2,  // Oracle 2
+    r3, s3, v3   // Oracle 3
+);
+
+(uint256 count, bytes memory oracles) = verifier.submit(
+    submissionId,
+    signatures
+);
+```
+
+## Validation Rules
+
+<Steps>
+  <Step title="Signature Count">
+    Must have at least `minConfirmations` valid signatures
+  </Step>
+  <Step title="Required Oracles">
+    All oracles marked as required must have signed
+  </Step>
+  <Step title="Valid Oracles">
+    Each signature must be from an active, valid oracle
+  </Step>
+  <Step title="No Duplicates">
+    No oracle can sign more than once
+  </Step>
+</Steps>
+
+<Info>
+  For high-value transfers above the threshold, `excessConfirmations` is used instead of `minConfirmations`.
+</Info>
+
+## Related Contracts
+
+<CardGroup cols={2}>
+  <Card title="OraclesManager" icon="users" href="/contracts/oraclesmanager">
+    Oracle network management
+  </Card>
+  <Card title="DeBridgeGate" icon="door-open" href="/contracts/debridgegate">
+    Uses verification for claim operations
+  </Card>
+</CardGroup>

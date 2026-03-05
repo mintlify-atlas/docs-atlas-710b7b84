@@ -1,0 +1,423 @@
+---
+title: "DeBridgeGate"
+description: "Main contract for cross-chain asset transfers and messaging"
+---
+
+## Overview
+
+DeBridgeGate is the core contract of the deBridge Protocol that handles all cross-chain asset transfers and arbitrary data messaging. Users interact with this contract to send assets or messages to other supported blockchain networks.
+
+**Contract Location**: `contracts/transfers/DeBridgeGate.sol`
+
+## Key Features
+
+- Cross-chain asset transfers using lock-and-mint mechanism
+- Arbitrary data messaging between blockchains
+- Fee management and collection
+- Oracle-based transaction validation
+- Support for native tokens and ERC-20 assets
+- Configurable fee discounts
+- Admin-controlled asset and chain support
+
+## State Variables
+
+### Constants
+
+<ParamField path="BPS_DENOMINATOR" type="uint256" default="10000">
+  Basis points denominator used for fee calculations (1 BPS = 0.01%)
+</ParamField>
+
+<ParamField path="GOVMONITORING_ROLE" type="bytes32">
+  Role identifier for governance monitoring that can pause transfers
+</ParamField>
+
+<ParamField path="SUBMISSION_PREFIX" type="uint256" default="1">
+  Prefix used in submissionId calculation
+</ParamField>
+
+<ParamField path="DEPLOY_PREFIX" type="uint256" default="2">
+  Prefix used in deployId calculation
+</ParamField>
+
+### Key Variables
+
+<ParamField path="deBridgeTokenDeployer" type="address">
+  Address of the DeBridgeTokenDeployer contract for wrapped token creation
+</ParamField>
+
+<ParamField path="signatureVerifier" type="address">
+  Current signature verifier contract address
+</ParamField>
+
+<ParamField path="callProxy" type="address">
+  Proxy contract address for executing cross-chain calls
+</ParamField>
+
+<ParamField path="globalFixedNativeFee" type="uint256">
+  Fallback fixed fee in native asset when chain-specific fee is not set
+</ParamField>
+
+<ParamField path="globalTransferFeeBps" type="uint16">
+  Fallback transfer fee in basis points when chain-specific fee is not set
+</ParamField>
+
+## Main Functions
+
+### send
+
+Transfers assets to another blockchain network.
+
+```solidity Function Signature
+function send(
+    address _tokenAddress,
+    uint256 _amount,
+    uint256 _chainIdTo,
+    bytes memory _receiver,
+    bytes memory _permit,
+    bool _useAssetFee,
+    uint32 _referralCode,
+    bytes calldata _autoParams
+) external payable returns (bytes32 submissionId);
+```
+
+<ParamField path="_tokenAddress" type="address" required>
+  Token address to transfer. Use `address(0)` for native token (ETH, BNB, etc.)
+</ParamField>
+
+<ParamField path="_amount" type="uint256" required>
+  Amount to transfer (in token's smallest unit)
+</ParamField>
+
+<ParamField path="_chainIdTo" type="uint256" required>
+  Destination chain ID (e.g., 1 for Ethereum, 56 for BSC)
+</ParamField>
+
+<ParamField path="_receiver" type="bytes" required>
+  Receiver address on the destination chain (encoded as bytes)
+</ParamField>
+
+<ParamField path="_permit" type="bytes">
+  EIP-2612 permit signature for gasless ERC-20 approvals (empty bytes if not used)
+</ParamField>
+
+<ParamField path="_useAssetFee" type="bool" required>
+  If true, deduct fees from transferred amount; if false, pay fees separately in native token
+</ParamField>
+
+<ParamField path="_referralCode" type="uint32">
+  Referral code for fee sharing (0 if not used)
+</ParamField>
+
+<ParamField path="_autoParams" type="bytes">
+  Encoded parameters for automatic execution on destination chain (empty if not used)
+</ParamField>
+
+<ResponseField name="submissionId" type="bytes32">
+  Unique identifier for this transfer submission
+</ResponseField>
+
+**Example Usage:**
+
+```solidity Send Native Token
+// Send 0.1 ETH to BSC
+bytes32 submissionId = deBridgeGate.send{value: 0.1 ether + protocolFee}(
+    address(0),                    // native token
+    0.1 ether,                     // amount
+    56,                            // BSC chain ID
+    abi.encodePacked(receiver),    // receiver address
+    "",                            // no permit
+    false,                         // pay fee separately
+    0,                             // no referral
+    ""                             // no auto params
+);
+```
+
+```solidity Send ERC-20 Token
+// Approve tokens first
+IERC20(token).approve(address(deBridgeGate), amount);
+
+// Send tokens
+bytes32 submissionId = deBridgeGate.send{value: protocolFee}(
+    tokenAddress,                  // ERC-20 token
+    amount,                        // amount to send
+    137,                           // Polygon chain ID
+    abi.encodePacked(receiver),    // receiver address
+    "",                            // no permit
+    false,                         // pay fee separately
+    0,                             // no referral
+    ""                             // no auto params
+);
+```
+
+### sendMessage
+
+Sends arbitrary data to another blockchain without transferring assets.
+
+```solidity Function Signature
+function sendMessage(
+    uint256 _chainIdTo,
+    bytes memory _targetContractAddress,
+    bytes memory _targetContractCalldata
+) external payable returns (bytes32 submissionId);
+```
+
+<ParamField path="_chainIdTo" type="uint256" required>
+  Destination chain ID
+</ParamField>
+
+<ParamField path="_targetContractAddress" type="bytes" required>
+  Target contract address on destination chain (encoded as bytes)
+</ParamField>
+
+<ParamField path="_targetContractCalldata" type="bytes" required>
+  Calldata to execute on the target contract
+</ParamField>
+
+**Example Usage:**
+
+```solidity Cross-Chain Message
+// Encode the function call
+bytes memory calldata = abi.encodeWithSignature(
+    "setValue(uint256)",
+    newValue
+);
+
+// Send message
+bytes32 submissionId = deBridgeGate.sendMessage{value: protocolFee + executionFee}(
+    42161,                                    // Arbitrum chain ID
+    abi.encodePacked(targetContract),         // target contract
+    calldata                                  // function call
+);
+```
+
+### claim
+
+Claims a cross-chain transfer on the destination chain using oracle signatures.
+
+```solidity Function Signature
+function claim(
+    bytes32 _debridgeId,
+    uint256 _amount,
+    uint256 _chainIdFrom,
+    address _receiver,
+    uint256 _nonce,
+    bytes calldata _signatures,
+    bytes calldata _autoParams
+) external;
+```
+
+<Note>
+  In production, claiming is typically handled by automated keepers/executors. Users don't need to call this function directly unless they want to claim manually.
+</Note>
+
+## Events
+
+### Sent
+
+```solidity
+event Sent(
+    bytes32 submissionId,
+    bytes32 debridgeId,
+    uint256 amount,
+    bytes receiver,
+    uint256 nonce,
+    uint256 chainIdTo,
+    uint32 referralCode,
+    FeeParams feeParams,
+    bytes autoParams,
+    address nativeSender
+);
+```
+
+Emitted when assets or messages are sent cross-chain.
+
+### Claimed
+
+```solidity
+event Claimed(
+    bytes32 submissionId,
+    bytes32 debridgeId,
+    uint256 amount,
+    address receiver,
+    uint256 nonce,
+    uint256 chainIdFrom,
+    bytes autoParams,
+    bool isNativeToken
+);
+```
+
+Emitted when a transfer is claimed on the destination chain.
+
+## Admin Functions
+
+<Accordion title="Asset Management">
+  
+  ### addExternalAsset
+  
+  Adds support for an external asset from another chain.
+  
+  ```solidity
+  function addExternalAsset(
+      address _tokenAddress,
+      uint256 _chainId,
+      uint256 _maxAmount,
+      uint16 _minReservesBps,
+      bytes memory _name,
+      bytes memory _symbol
+  ) external onlyAdmin;
+  ```
+  
+  ### addNativeAsset
+  
+  Adds support for a native asset of the current chain.
+  
+  ```solidity
+  function addNativeAsset(
+      address _tokenAddress,
+      uint256 _maxAmount,
+      uint16 _minReservesBps
+  ) external onlyAdmin;
+  ```
+  
+</Accordion>
+
+<Accordion title="Chain Configuration">
+  
+  ### updateChainSupport
+  
+  Updates chain support configuration for sending or receiving transfers.
+  
+  ```solidity
+  function updateChainSupport(
+      uint256 _chainId,
+      bool _isSupported,
+      bool _isChainFrom
+  ) external onlyAdmin;
+  ```
+  
+  ### setChainFee
+  
+  Sets fixed and transfer fees for a specific chain.
+  
+  ```solidity
+  function setChainFee(
+      uint256 _chainId,
+      uint256 _fixedNativeFee,
+      uint16 _transferFeeBps,
+      bool _isChainFrom
+  ) external onlyAdmin;
+  ```
+  
+</Accordion>
+
+<Accordion title="Fee Management">
+  
+  ### updateGlobalFee
+  
+  Updates global fallback fees.
+  
+  ```solidity
+  function updateGlobalFee(
+      uint256 _globalFixedNativeFee,
+      uint16 _globalTransferFeeBps
+  ) external onlyAdmin;
+  ```
+  
+  ### updateFeeDiscount
+  
+  Sets fee discount for a specific address.
+  
+  ```solidity
+  function updateFeeDiscount(
+      address _address,
+      uint16 _discountFixBps,
+      uint16 _discountTransferBps
+  ) external onlyAdmin;
+  ```
+  
+</Accordion>
+
+## Fee Calculation
+
+Fees consist of two components:
+
+1. **Fixed Native Fee**: Paid in the native token of the source chain (ETH, BNB, etc.)
+2. **Transfer Fee**: Percentage-based fee calculated on the transfer amount
+
+```solidity Fee Calculation Example
+// Get fee information
+(uint256 fixedFee, uint256 transferFee) = deBridgeGate.getDebridgeFeeInfo(
+    debridgeId
+);
+
+// Calculate total fee
+uint256 totalFee = fixedFee + (amount * transferFeeBps) / BPS_DENOMINATOR;
+
+// Apply discounts if available
+if (hasDiscount) {
+    fixedFee = fixedFee * (BPS_DENOMINATOR - discountFixBps) / BPS_DENOMINATOR;
+    transferFee = transferFee * (BPS_DENOMINATOR - discountTransferBps) / BPS_DENOMINATOR;
+}
+```
+
+## Security Considerations
+
+<Warning>
+  Always verify that:
+  - The destination chain is supported before sending
+  - You send enough native tokens to cover protocol fees
+  - The amount doesn't exceed `maxAmount` for the asset
+  - The receiver address is correctly encoded for the destination chain
+</Warning>
+
+<Tip>
+  Use the `getDebridgeId` function to check if an asset is supported before attempting a transfer.
+</Tip>
+
+## Integration Checklist
+
+<Steps>
+  <Step title="Check Asset Support">
+    Verify the asset is supported on both source and destination chains using `getDebridge()`.
+  </Step>
+  
+  <Step title="Calculate Fees">
+    Query fee structure and calculate total fees including fixed and percentage-based components.
+  </Step>
+  
+  <Step title="Approve Tokens (if ERC-20)">
+    Approve DeBridgeGate to spend tokens or use permit for gasless approval.
+  </Step>
+  
+  <Step title="Call send()">
+    Execute the transfer with appropriate parameters and native token for fees.
+  </Step>
+  
+  <Step title="Monitor Events">
+    Listen for `Sent` event to confirm submission and track the `submissionId`.
+  </Step>
+</Steps>
+
+## Related Contracts
+
+<CardGroup cols={2}>
+  <Card title="DeBridgeTokenDeployer" icon="rocket" href="/contracts/debridgetokendeployer">
+    Manages wrapped token deployment
+  </Card>
+  <Card title="SignatureVerifier" icon="shield-check" href="/contracts/signatureverifier">
+    Verifies oracle signatures for claims
+  </Card>
+  <Card title="CallProxy" icon="phone" href="/contracts/periphery/callproxy">
+    Executes cross-chain calls
+  </Card>
+  <Card title="OraclesManager" icon="users" href="/contracts/oraclesmanager">
+    Manages validator network
+  </Card>
+</CardGroup>
+
+## Further Reading
+
+- [Asset Transfers Guide](/concepts/transfers)
+- [Cross-Chain Messaging](/concepts/cross-chain-messaging)
+- [Fee Structure](/concepts/fees)
+- [Integration Overview](/integration/overview)

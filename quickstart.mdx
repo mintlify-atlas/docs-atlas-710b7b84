@@ -1,80 +1,315 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with deBridge Protocol - make your first cross-chain transfer in minutes
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through making your first cross-chain transfer using the deBridge Protocol.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+Before you begin, ensure you have:
+
+<Steps>
+  <Step title="Development Environment">
+    - Node.js v16+ and npm/yarn installed
+    - Hardhat or Foundry for smart contract development
+    - A code editor (VS Code recommended)
+  </Step>
+  
+  <Step title="Blockchain Basics">
+    - Understanding of Ethereum and EVM-compatible chains
+    - Familiarity with Solidity smart contracts
+    - Knowledge of how to interact with blockchain networks
+  </Step>
+  
+  <Step title="Wallet and Funds">
+    - A wallet with private key access (e.g., MetaMask)
+    - Native tokens for gas fees on both source and destination chains
+    - Test tokens for experimentation (use testnets first)
+  </Step>
+</Steps>
+
+## Step 1: Install Dependencies
+
+First, install the required packages for your project:
+
+<Tabs>
+  <Tab title="npm">
+    ```bash
+    npm install --save-dev @openzeppelin/contracts-upgradeable
+    npm install --save-dev @openzeppelin/contracts
+    ```
+  </Tab>
+  
+  <Tab title="yarn">
+    ```bash
+    yarn add -D @openzeppelin/contracts-upgradeable
+    yarn add -D @openzeppelin/contracts
+    ```
+  </Tab>
+</Tabs>
+
+## Step 2: Set Up Your Contract
+
+Create a simple contract that interacts with DeBridgeGate:
+
+```solidity contracts/MyFirstBridge.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+interface IDeBridgeGate {
+    function send(
+        address _tokenAddress,
+        uint256 _amount,
+        uint256 _chainIdTo,
+        bytes memory _receiver,
+        bytes memory _permitEnvelope,
+        bool _useAssetFee,
+        uint32 _referralCode,
+        bytes calldata _autoParams
+    ) external payable returns (bytes32 submissionId);
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    function globalFixedNativeFee() external view returns (uint256);
+}
+
+contract MyFirstBridge {
+    IDeBridgeGate public deBridgeGate;
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    constructor(address _deBridgeGate) {
+        deBridgeGate = IDeBridgeGate(_deBridgeGate);
+    }
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    // Transfer native tokens to another chain
+    function bridgeNativeToken(
+        uint256 _chainIdTo,
+        address _receiver
+    ) external payable {
+        require(msg.value > 0, "Must send native tokens");
+        
+        // Convert receiver address to bytes
+        bytes memory receiverBytes = abi.encodePacked(_receiver);
+        
+        // Send via deBridge
+        // tokenAddress = address(0) for native tokens
+        // amount = msg.value (will be wrapped to WETH)
+        deBridgeGate.send{value: msg.value}(
+            address(0),           // native token
+            msg.value,            // amount
+            _chainIdTo,           // destination chain ID
+            receiverBytes,        // receiver address
+            "",                   // no permit
+            true,                 // use asset fee
+            0,                    // no referral code
+            ""                    // no auto params
+        );
+    }
+}
+```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Step 3: Deploy Your Contract
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Deploy your contract with the DeBridgeGate address for your network:
 
-### Step 3: Go live
+<Tabs>
+  <Tab title="Ethereum Mainnet">
+    ```javascript scripts/deploy.js
+    const deBridgeGateAddress = "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA";
+    
+    async function main() {
+      const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
+      const bridge = await MyFirstBridge.deploy(deBridgeGateAddress);
+      await bridge.deployed();
+      
+      console.log("MyFirstBridge deployed to:", bridge.address);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="BSC Mainnet">
+    ```javascript scripts/deploy.js
+    const deBridgeGateAddress = "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA";
+    
+    async function main() {
+      const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
+      const bridge = await MyFirstBridge.deploy(deBridgeGateAddress);
+      await bridge.deployed();
+      
+      console.log("MyFirstBridge deployed to:", bridge.address);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Polygon">
+    ```javascript scripts/deploy.js
+    const deBridgeGateAddress = "0x43dE2d77BF8027e25dBD179B491e8d64f38398aA";
+    
+    async function main() {
+      const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
+      const bridge = await MyFirstBridge.deploy(deBridgeGateAddress);
+      await bridge.deployed();
+      
+      console.log("MyFirstBridge deployed to:", bridge.address);
+    }
+    ```
+  </Tab>
+</Tabs>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+Run the deployment:
 
-## Next steps
+```bash
+npx hardhat run scripts/deploy.js --network <your-network>
+```
 
-Now that you have your docs running, explore these key features:
+## Step 4: Make Your First Transfer
+
+Now interact with your deployed contract to make a cross-chain transfer:
+
+```javascript scripts/transfer.js
+const { ethers } = require("hardhat");
+
+async function main() {
+  // Get contract instance
+  const bridgeAddress = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
+  const MyFirstBridge = await ethers.getContractFactory("MyFirstBridge");
+  const bridge = await MyFirstBridge.attach(bridgeAddress);
+  
+  // Set transfer parameters
+  const destinationChainId = 56; // BSC
+  const receiverAddress = "0xYourReceiverAddress";
+  const amountToSend = ethers.utils.parseEther("0.1"); // 0.1 ETH
+  
+  // Execute the transfer
+  console.log("Sending 0.1 ETH to BSC...");
+  const tx = await bridge.bridgeNativeToken(
+    destinationChainId,
+    receiverAddress,
+    { value: amountToSend }
+  );
+  
+  console.log("Transaction hash:", tx.hash);
+  console.log("Waiting for confirmation...");
+  
+  const receipt = await tx.wait();
+  console.log("Transfer initiated! Receipt:", receipt.transactionHash);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+```
+
+Run the transfer:
+
+```bash
+npx hardhat run scripts/transfer.js --network <your-network>
+```
+
+## Step 5: Track Your Transfer
+
+After initiating a transfer, you can track its status:
+
+<Steps>
+  <Step title="Get Submission ID">
+    The `send` function returns a `submissionId` which uniquely identifies your transfer. Listen for the `Sent` event to capture it:
+    
+    ```javascript
+    const receipt = await tx.wait();
+    const sentEvent = receipt.events?.find(e => e.event === 'Sent');
+    const submissionId = sentEvent?.args?.submissionId;
+    console.log("Submission ID:", submissionId);
+    ```
+  </Step>
+  
+  <Step title="Monitor Oracle Signatures">
+    Wait for validators to sign your transaction. This typically takes 2-5 minutes depending on network conditions.
+  </Step>
+  
+  <Step title="Claim on Destination">
+    Once enough signatures are collected, the transaction can be claimed on the destination chain. This is typically done automatically by keepers, or you can claim it manually.
+  </Step>
+</Steps>
+
+## Understanding the Transfer Flow
+
+Here's what happens during a cross-chain transfer:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant SourceGate as DeBridgeGate (Source)
+    participant Validators
+    participant DestGate as DeBridgeGate (Destination)
+    participant Recipient
+    
+    User->>SourceGate: send() with assets
+    SourceGate->>SourceGate: Lock/Burn assets
+    SourceGate->>SourceGate: Emit Sent event
+    SourceGate-->>Validators: Transaction data
+    Validators->>Validators: Validate & Sign
+    Validators-->>DestGate: Signatures
+    DestGate->>DestGate: Verify signatures
+    DestGate->>DestGate: Mint/Unlock assets
+    DestGate->>Recipient: Transfer assets
+    DestGate->>DestGate: Emit Claimed event
+```
+
+## Next Steps
+
+Congratulations! You've made your first cross-chain transfer. Here's what to explore next:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Send Cross-Chain Messages" icon="message" href="/integration/cross-chain-calls">
+    Learn how to send arbitrary data and execute smart contract calls across chains
+  </Card>
+  
+  <Card title="Understand Transfers" icon="arrows-left-right" href="/concepts/transfers">
+    Deep dive into how asset transfers work with lock-and-mint mechanism
+  </Card>
+  
+  <Card title="Explore Fees" icon="dollar-sign" href="/concepts/fees">
+    Learn about fee structure and how to optimize costs
+  </Card>
+  
+  <Card title="Advanced Integration" icon="code" href="/integration/bridgeappbase">
+    Use BridgeAppBase pattern for complex cross-chain applications
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Transaction Reverts with 'TransferAmountNotCoverFees'">
+    Make sure you're sending enough value to cover both the protocol fixed fee and the transfer fee. Check the current fees using:
+    
+    ```solidity
+    uint256 fixedFee = deBridgeGate.globalFixedNativeFee();
+    uint256 transferFeeBps = deBridgeGate.globalTransferFeeBps();
+    ```
+  </Accordion>
+  
+  <Accordion title="Transfer Not Appearing on Destination Chain">
+    - Wait 5-10 minutes for validator signatures to be collected
+    - Check that the destination chain is supported
+    - Verify you're using the correct chain IDs
+    - Ensure the destination chain has keepers running to auto-claim
+  </Accordion>
+  
+  <Accordion title="'WrongChainTo' Error">
+    The destination chain may not be supported for this asset. Check chain support configuration or contact the deBridge team.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Always test on testnets first before deploying to mainnet. Start with small amounts to verify your integration works correctly.
+</Warning>
+
+## Get Help
+
+Need assistance?
+
+- Join our [Discord](https://discord.com/invite/debridge) for community support
+- Check the [Integration Guide](/integration/overview) for detailed documentation
+- Review [example contracts](https://github.com/debridge-finance) on GitHub

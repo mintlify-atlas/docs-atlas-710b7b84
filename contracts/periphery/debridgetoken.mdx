@@ -1,0 +1,147 @@
+---
+title: "DeBridgeToken"
+description: "ERC-20 wrapped token implementation for cross-chain assets"
+---
+
+## Overview
+
+DeBridgeToken is the ERC-20 implementation for wrapped assets (deTokens) that represent native tokens from other blockchains. Each deToken is 1:1 backed by collateral locked on its native chain.
+
+**Contract Location**: `contracts/periphery/DeBridgeToken.sol`
+
+## Token Properties
+
+<ParamField path="name" type="string">
+  Token name (e.g., "deBridge Ethereum")
+</ParamField>
+
+<ParamField path="symbol" type="string">
+  Token symbol (e.g., "deETH")
+</ParamField>
+
+<ParamField path="decimals" type="uint8">
+  Decimal places (matches original token)
+</ParamField>
+
+<ParamField path="chainIdFrom" type="uint256">
+  Chain ID where the original asset exists
+</ParamField>
+
+<ParamField path="tokenAddressFrom" type="address">
+  Original token address on the source chain
+</ParamField>
+
+## ERC-20 Functions
+
+DeBridgeToken implements the standard ERC-20 interface:
+
+- `transfer(address to, uint256 amount)`
+- `approve(address spender, uint256 amount)`
+- `transferFrom(address from, address to, uint256 amount)`
+- `balanceOf(address account)`
+- `allowance(address owner, address spender)`
+
+## Bridge-Specific Functions
+
+### mint
+
+Mints new wrapped tokens when assets are locked on the native chain.
+
+```solidity
+function mint(address _receiver, uint256 _amount) external
+```
+
+<Warning>
+  Only the DeBridgeGate contract can mint tokens. This ensures tokens are only created when collateral is locked.
+</Warning>
+
+### burn
+
+Burns wrapped tokens when sending assets back to native chain.
+
+```solidity
+function burn(uint256 _amount) external
+```
+
+## Token Lifecycle
+
+<Steps>
+  <Step title="Lock on Native Chain">
+    User locks 1 ETH on Ethereum in DeBridgeGate
+  </Step>
+  
+  <Step title="Oracle Confirmation">
+    Validators observe and sign the lock transaction
+  </Step>
+  
+  <Step title="Mint on Destination">
+    DeBridgeGate mints 1 deETH on BSC for the user
+  </Step>
+  
+  <Step title="Use as Normal ERC-20">
+    User can transfer, trade, use deETH like any ERC-20
+  </Step>
+  
+  <Step title="Burn to Unlock">
+    User burns deETH on BSC to unlock ETH on Ethereum
+  </Step>
+</Steps>
+
+## Naming Convention
+
+Wrapped tokens follow the pattern:
+- **Name**: "deBridge [Original Token Name]"
+- **Symbol**: "de[Original Symbol]"
+
+Examples:
+- USDC from Ethereum → "deBridge USDC" (deUSDC)
+- WBTC from Ethereum → "deBridge Wrapped Bitcoin" (deWBTC)
+- Native ETH → "deBridge Ethereum" (deETH)
+
+## Upgradeability
+
+<Info>
+  DeBridgeTokens use a beacon proxy pattern, allowing the implementation to be upgraded for all tokens simultaneously.
+</Info>
+
+## Integration Example
+
+```solidity Using deTokens
+// Get deToken address for an asset
+address deToken = deBridgeGate.getWrappedToken(
+    nativeTokenAddress,
+    nativeChainId
+);
+
+// Use like any ERC-20
+IDeBridgeToken(deToken).approve(spender, amount);
+IDeBridgeToken(deToken).transfer(recipient, amount);
+
+// Check origin
+(uint256 chainId, bytes memory addr) = deBridgeGate.getNativeInfo(deToken);
+```
+
+## Permit Support
+
+DeBridgeToken supports EIP-2612 permit for gasless approvals:
+
+```solidity Gasless Approval
+deToken.permit(
+    owner,
+    spender,
+    value,
+    deadline,
+    v, r, s  // Signature components
+);
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Asset Transfers" icon="arrow-right-arrow-left" href="/concepts/transfers">
+    Learn about lock-and-mint mechanism
+  </Card>
+  <Card title="Token Deployer" icon="rocket" href="/contracts/debridgetokendeployer">
+    How deTokens are created
+  </Card>
+</CardGroup>

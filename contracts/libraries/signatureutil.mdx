@@ -1,0 +1,136 @@
+---
+title: "SignatureUtil Library"
+description: "Utility functions for signature verification and extraction"
+---
+
+## Overview
+
+SignatureUtil provides helper functions for working with ECDSA signatures in the deBridge Protocol.
+
+**Library Location**: `contracts/libraries/SignatureUtil.sol`
+
+## Functions
+
+### recoverSigner
+
+```solidity
+function recoverSigner(
+    bytes32 _hash,
+    bytes memory _signature,
+    uint256 _index
+) internal pure returns (address)
+```
+
+Recovers the signer address from a signature at a specific index.
+
+<ParamField path="_hash" type="bytes32" required>
+  Message hash that was signed
+</ParamField>
+
+<ParamField path="_signature" type="bytes" required>
+  Concatenated signatures (65 bytes each)
+</ParamField>
+
+<ParamField path="_index" type="uint256" required>
+  Index of the signature to extract (0-based)
+</ParamField>
+
+<ResponseField name="signer" type="address">
+  Recovered signer address
+</ResponseField>
+
+## Usage Example
+
+```solidity Verifying Multiple Signatures
+using SignatureUtil for bytes;
+
+bytes32 messageHash = keccak256(abi.encodePacked(
+    submissionId,
+    amount,
+    receiver
+));
+
+// Signatures are concatenated: [sig0][sig1][sig2]...
+// Each signature is 65 bytes (r:32, s:32, v:1)
+bytes memory signatures = /* oracle signatures */;
+
+uint256 validCount = 0;
+for (uint256 i = 0; i < signatures.length / 65; i++) {
+    address signer = signatures.recoverSigner(messageHash, i);
+    
+    if (isValidOracle(signer)) {
+        validCount++;
+    }
+}
+
+require(validCount >= minConfirmations, "Not enough signatures");
+```
+
+## Signature Format
+
+ECDSA signatures consist of three components:
+
+- **r**: 32 bytes (first part of signature)
+- **s**: 32 bytes (second part of signature)
+- **v**: 1 byte (recovery id, 27 or 28)
+
+Total: 65 bytes per signature
+
+```solidity Signature Structure
+// Single signature
+bytes memory sig = abi.encodePacked(r, s, v); // 65 bytes
+
+// Multiple signatures concatenated
+bytes memory sigs = abi.encodePacked(
+    r1, s1, v1,  // Oracle 1: bytes 0-64
+    r2, s2, v2,  // Oracle 2: bytes 65-129
+    r3, s3, v3   // Oracle 3: bytes 130-194
+);
+```
+
+## Security Considerations
+
+<Warning>
+  Always hash messages using `keccak256` before signing to prevent signature replay attacks across different message types.
+</Warning>
+
+```solidity Secure Message Hashing
+// Include all relevant parameters
+bytes32 messageHash = keccak256(abi.encodePacked(
+    submissionId,
+    amount,
+    chainIdFrom,
+    chainIdTo,
+    nonce
+));
+
+// Recover signer
+address signer = signatures.recoverSigner(messageHash, 0);
+```
+
+## Helper Functions
+
+### countSignatures
+
+```solidity
+function countSignatures(bytes memory _signatures) 
+    internal pure returns (uint256)
+```
+
+Returns the number of signatures in concatenated bytes.
+
+```solidity
+uint256 count = signatures.countSignatures();
+// count = signatures.length / 65
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="SignatureVerifier" icon="shield-check" href="/contracts/signatureverifier">
+    Contract that uses this library
+  </Card>
+  <Card title="Oracle Network" icon="network-wired" href="/concepts/oracles">
+    Learn about oracle signatures
+  </Card>
+</CardGroup>

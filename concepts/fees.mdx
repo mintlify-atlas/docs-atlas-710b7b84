@@ -1,0 +1,650 @@
+---
+title: Fee Structure
+description: Understanding deBridge Protocol's fee model, discounts, and optimization strategies
+---
+
+# Fee Structure
+
+The deBridge Protocol implements a comprehensive fee structure to sustain the network, incentivize validators, and ensure long-term protocol health. This page explains all fee types, how they're calculated, and strategies for optimization.
+
+## Fee Types
+
+deBridge uses two primary fee types:
+
+<CardGroup cols={2}>
+  <Card title="Fixed Native Fee" icon="coins">
+    A flat fee paid in the native token (ETH, BNB, etc.) per transaction
+  </Card>
+  
+  <Card title="Transfer Fee" icon="percent">
+    A percentage-based fee on the transferred asset amount (measured in basis points)
+  </Card>
+</CardGroup>
+
+## Fixed Native Fee
+
+A flat fee paid in native currency for each transaction.
+
+### How It Works
+
+```solidity contracts/transfers/DeBridgeGate.sol:736-750
+// Collect fixed native fee for non-native token transfers
+uint256 nativeFee = chainFees.fixedNativeFee == 0 
+    ? globalFixedNativeFee 
+    : chainFees.fixedNativeFee;
+
+// Apply discount
+nativeFee = _applyDiscount(nativeFee, discountInfo.discountFixBps);
+
+if (msg.value < nativeFee) revert TransferAmountNotCoverFees();
+else if (msg.value > nativeFee) {
+    // Refund extra ETH
+    _safeTransferETH(msg.sender, msg.value - nativeFee);
+}
+
+bytes32 nativeDebridgeId = getDebridgeId(getChainId(), address(0));
+getDebridgeFeeInfo[nativeDebridgeId].collectedFees += nativeFee;
+```
+
+### Fee Levels
+
+<Tabs>
+  <Tab title="Global Default">
+    Fallback fee when chain-specific fee is not set:
+    
+    ```solidity contracts/transfers/DeBridgeGate.sol:94
+    uint256 public override globalFixedNativeFee;
+    ```
+    
+    Query current global fee:
+    ```solidity
+    uint256 globalFee = deBridgeGate.globalFixedNativeFee();
+    ```
+  </Tab>
+  
+  <Tab title="Chain-Specific">
+    Per-chain fees can be set for different destination chains:
+    
+    ```solidity
+    struct ChainSupportInfo {
+        uint256 fixedNativeFee;  // Chain-specific fee
+        bool isSupported;
+        uint16 transferFeeBps;
+    }
+    ```
+    
+    If set to 0, falls back to global fee.
+  </Tab>
+  
+  <Tab title="Asset-Specific">
+    When using `useAssetFee = true`, fee is paid in the transferred asset:
+    
+    ```solidity contracts/transfers/DeBridgeGate.sol:722-733
+    if (_useAssetFee) {
+        if (_tokenAddress == address(0)) {
+            // For native token: use global/chain native fee
+            assetsFixedFee = chainFees.fixedNativeFee == 0 
+                ? globalFixedNativeFee 
+                : chainFees.fixedNativeFee;
+        } else {
+            // For ERC20: use asset-specific fee
+            assetsFixedFee = debridgeFee.getChainFee[_chainIdTo];
+            if (assetsFixedFee == 0) revert NotSupportedFixedFee();
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Auto-Update Mechanism
+
+Fees can be automatically adjusted by authorized updater:
+
+```solidity contracts/transfers/DeBridgeGate.sol:366-373
+function autoUpdateFixedNativeFee(
+    uint256 _globalFixedNativeFee
+) external onlyFeeContractUpdater {
+    globalFixedNativeFee = _globalFixedNativeFee;
+    emit FixedNativeFeeAutoUpdated(_globalFixedNativeFee);
+}
+```
+
+This allows dynamic fee adjustment based on network conditions.
+
+## Transfer Fee
+
+A percentage-based fee on the transferred amount.
+
+### Calculation
+
+```solidity contracts/transfers/DeBridgeGate.sol:754-759
+// Calculate transfer fee in basis points (BPS)
+uint256 transferFee = (chainFees.transferFeeBps == 0
+    ? globalTransferFeeBps 
+    : chainFees.transferFeeBps)
+    * (_amount - assetsFixedFee) / BPS_DENOMINATOR;
+
+transferFee = _applyDiscount(transferFee, discountInfo.discountTransferBps);
+```
+
+**BPS Denominator**: 10,000 (meaning 1 BPS = 0.01%)
+
+**Example**:
+- Transfer amount: 1,000 tokens
+- Transfer fee: 10 BPS (0.1%)
+- Fee = 1,000 * 10 / 10,000 = 1 token
+
+### Fee Levels
+
+<Tabs>
+  <Tab title="Global Default">
+    ```solidity contracts/transfers/DeBridgeGate.sol:96
+    uint16 public override globalTransferFeeBps;
+    ```
+    
+    Query:
+    ```solidity
+    uint16 globalFeeBps = deBridgeGate.globalTransferFeeBps();
+    // Example: 10 = 0.1%
+    ```
+  </Tab>
+  
+  <Tab title="Chain-Specific">
+    ```solidity
+    struct ChainSupportInfo {
+        uint256 fixedNativeFee;
+        bool isSupported;
+        uint16 transferFeeBps;  // Chain-specific transfer fee
+    }
+    ```
+    
+    Falls back to global if set to 0.
+  </Tab>
+</Tabs>
+
+## Total Fee Calculation
+
+The complete fee calculation process:
+
+```solidity Example: Calculate Total Fees
+function calculateTotalFees(
+    address tokenAddress,
+    uint256 amount,
+    uint256 chainIdTo,
+    bool useAssetFee,
+    address sender
+) public view returns (
+    uint256 fixedFee,
+    uint256 transferFee,
+    uint256 totalFee
+) {
+    ChainSupportInfo memory chainFees = deBridgeGate.getChainToConfig(chainIdTo);
+    DiscountInfo memory discount = deBridgeGate.feeDiscount(sender);
+    
+    // 1. Calculate fixed fee
+    if (useAssetFee && tokenAddress != address(0)) {
+        // Asset-specific fixed fee
+        bytes32 debridgeId = deBridgeGate.getDebridgeId(
+            getNativeChainId(tokenAddress),
+            tokenAddress
+        );
+        fixedFee = deBridgeGate.getDebridgeChainAssetFixedFee(debridgeId, chainIdTo);
+    } else {
+        // Native fixed fee
+        fixedFee = chainFees.fixedNativeFee == 0
+            ? deBridgeGate.globalFixedNativeFee()
+            : chainFees.fixedNativeFee;
+    }
+    
+    // Apply fixed fee discount
+    fixedFee = fixedFee * (10000 - discount.discountFixBps) / 10000;
+    
+    // 2. Calculate transfer fee
+    uint16 transferFeeBps = chainFees.transferFeeBps == 0
+        ? deBridgeGate.globalTransferFeeBps()
+        : chainFees.transferFeeBps;
+    
+    transferFee = (amount - fixedFee) * transferFeeBps / 10000;
+    
+    // Apply transfer fee discount
+    transferFee = transferFee * (10000 - discount.discountTransferBps) / 10000;
+    
+    // 3. Total
+    totalFee = fixedFee + transferFee;
+}
+```
+
+## Fee Discounts
+
+The protocol supports per-address fee discounts:
+
+```solidity contracts/transfers/DeBridgeGate.sol:34-37
+struct DiscountInfo {
+    uint16 discountFixBps;      // Fixed fee discount in BPS (0-10000)
+    uint16 discountTransferBps; // Transfer fee discount in BPS (0-10000)
+}
+
+mapping(address => DiscountInfo) public feeDiscount;
+```
+
+### Setting Discounts
+
+Only admin can set discounts:
+
+```solidity contracts/transfers/DeBridgeGate.sol:552-564
+function updateFeeDiscount(
+    address _address,
+    uint16 _discountFixBps,
+    uint16 _discountTransferBps
+) external onlyAdmin {
+    if (_address == address(0) ||
+        _discountFixBps > BPS_DENOMINATOR ||
+        _discountTransferBps > BPS_DENOMINATOR
+    ) revert WrongArgument();
+    
+    DiscountInfo storage discountInfo = feeDiscount[_address];
+    discountInfo.discountFixBps = _discountFixBps;
+    discountInfo.discountTransferBps = _discountTransferBps;
+}
+```
+
+### Applying Discounts
+
+```solidity contracts/transfers/DeBridgeGate.sol:847-852
+function _applyDiscount(
+    uint256 amount,
+    uint16 discountBps
+) internal pure returns (uint256) {
+    return amount - amount * discountBps / BPS_DENOMINATOR;
+}
+```
+
+**Example**:
+- Original fee: 100 tokens
+- Discount: 2000 BPS (20%)
+- Discounted fee = 100 - (100 * 2000 / 10000) = 80 tokens
+
+### Discount Use Cases
+
+<AccordionGroup>
+  <Accordion title="High-Volume Users">
+    Protocols or users doing frequent transfers can receive volume discounts:
+    
+    ```solidity
+    // 10% discount on both fees
+    updateFeeDiscount(highVolumeAddress, 1000, 1000);
+    ```
+  </Accordion>
+  
+  <Accordion title="Partner Protocols">
+    Strategic partners can get preferential rates:
+    
+    ```solidity
+    // 20% on fixed, 15% on transfer
+    updateFeeDiscount(partnerAddress, 2000, 1500);
+    ```
+  </Accordion>
+  
+  <Accordion title="Governance Tokens">
+    Token holders could receive discounts through governance:
+    
+    ```solidity
+    // 5% discount for token holders
+    updateFeeDiscount(tokenHolderAddress, 500, 500);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## useAssetFee Parameter
+
+The `useAssetFee` parameter controls whether fees are paid in the transferred asset or native token:
+
+<Tabs>
+  <Tab title="useAssetFee = false">
+    Pay fixed fee in native token (ETH, BNB, etc.):
+    
+    ```solidity
+    IERC20(token).approve(address(deBridgeGate), amount);
+    
+    // Send native token for fees
+    deBridgeGate.send{value: fixedFee}(
+        tokenAddress,
+        amount,
+        chainIdTo,
+        receiver,
+        "",
+        false,  // Pay fee in native token
+        0,
+        ""
+    );
+    ```
+    
+    **Pros**:
+    - Simpler for users (just send ETH/BNB)
+    - Works for any token
+    
+    **Cons**:
+    - Requires native token balance
+    - Two separate tokens needed
+  </Tab>
+  
+  <Tab title="useAssetFee = true">
+    Deduct fee from transferred asset:
+    
+    ```solidity
+    // Fee is deducted from the transferred amount
+    deBridgeGate.send(
+        tokenAddress,
+        amount,  // Includes fee
+        chainIdTo,
+        receiver,
+        "",
+        true,  // Pay fee in asset
+        0,
+        ""
+    );
+    ```
+    
+    **Pros**:
+    - Only need one token
+    - Better UX for some scenarios
+    
+    **Cons**:
+    - Must be supported for the asset
+    - Receiver gets less than sent amount
+    
+    **Note**: For native tokens (address(0)), `useAssetFee` is automatically set to `true`.
+  </Tab>
+</Tabs>
+
+## Fee Collection and Withdrawal
+
+Fees are tracked per asset:
+
+```solidity contracts/transfers/DeBridgeGate.sol:22-26
+struct DebridgeFeeInfo {
+    uint256 collectedFees;  // Total fees collected
+    uint256 withdrawnFees;  // Total fees withdrawn
+    mapping(uint256 => uint256) getChainFee;  // Asset-specific fees per chain
+}
+```
+
+### Withdrawing Fees
+
+Fees can be withdrawn by the fee proxy:
+
+```solidity contracts/transfers/DeBridgeGate.sol:509-526
+function withdrawFee(bytes32 _debridgeId) external nonReentrant onlyFeeProxy {
+    DebridgeFeeInfo storage debridgeFee = getDebridgeFeeInfo[_debridgeId];
+    
+    // Calculate withdrawable amount
+    uint256 amount = debridgeFee.collectedFees - debridgeFee.withdrawnFees;
+    
+    if (amount == 0) revert NotEnoughReserves();
+    
+    debridgeFee.withdrawnFees += amount;
+    
+    // Transfer to fee proxy
+    if (_debridgeId == getDebridgeId(getChainId(), address(0))) {
+        _safeTransferETH(feeProxy, amount);
+    } else {
+        IERC20Upgradeable(getDebridge[_debridgeId].tokenAddress)
+            .safeTransfer(feeProxy, amount);
+    }
+    
+    emit WithdrawnFee(_debridgeId, amount);
+}
+```
+
+## Execution Fees
+
+For cross-chain calls, additional execution fee is required:
+
+```solidity
+SubmissionAutoParamsTo memory autoParams = SubmissionAutoParamsTo({
+    executionFee: 0.01 ether,  // Fee for executor/keeper
+    flags: flags,
+    fallbackAddress: fallbackAddress,
+    data: calldata
+});
+```
+
+The execution fee:
+- Goes to the keeper who executes the claim
+- Must cover gas costs on destination chain
+- Should include keeper incentive
+
+**Calculation**:
+```solidity
+// Estimate execution fee
+uint256 destinationGasPrice = getGasPrice(destinationChain);
+uint256 estimatedGas = 300000;  // Estimate for your function
+uint256 buffer = 20;  // 20% buffer
+
+executionFee = estimatedGas * destinationGasPrice * (100 + buffer) / 100;
+```
+
+## Fee Optimization Strategies
+
+<CardGroup cols={2}>
+  <Card title="Batch Transfers" icon="layer-group">
+    Combine multiple small transfers into fewer large ones to save on fixed fees
+  </Card>
+  
+  <Card title="Apply for Discounts" icon="tag">
+    High-volume users should contact deBridge team for discount arrangements
+  </Card>
+  
+  <Card title="Use Asset Fees" icon="exchange">
+    When possible, use `useAssetFee=true` to avoid holding multiple tokens
+  </Card>
+  
+  <Card title="Monitor Fee Updates" icon="chart-line">
+    Track `FixedNativeFeeAutoUpdated` events for automatic fee adjustments
+  </Card>
+</CardGroup>
+
+### Example: Query All Fees
+
+```solidity Example: Fee Query Helper
+contract FeeHelper {
+    IDeBridgeGate public deBridgeGate;
+    
+    struct FeeQuote {
+        uint256 fixedNativeFee;
+        uint256 transferFeeBps;
+        uint256 assetFixedFee;
+        uint256 estimatedTotalFee;
+    }
+    
+    function quoteFees(
+        address tokenAddress,
+        uint256 amount,
+        uint256 chainIdTo,
+        bool useAssetFee
+    ) external view returns (FeeQuote memory quote) {
+        ChainSupportInfo memory chainConfig = 
+            deBridgeGate.getChainToConfig(chainIdTo);
+        
+        // Get fixed native fee
+        quote.fixedNativeFee = chainConfig.fixedNativeFee == 0
+            ? deBridgeGate.globalFixedNativeFee()
+            : chainConfig.fixedNativeFee;
+        
+        // Get transfer fee BPS
+        quote.transferFeeBps = chainConfig.transferFeeBps == 0
+            ? deBridgeGate.globalTransferFeeBps()
+            : chainConfig.transferFeeBps;
+        
+        // Calculate total
+        if (useAssetFee && tokenAddress != address(0)) {
+            bytes32 debridgeId = deBridgeGate.getDebridgeId(
+                getChainId(),
+                tokenAddress
+            );
+            quote.assetFixedFee = deBridgeGate.getDebridgeChainAssetFixedFee(
+                debridgeId,
+                chainIdTo
+            );
+            
+            uint256 transferFee = (amount - quote.assetFixedFee) 
+                * quote.transferFeeBps / 10000;
+            quote.estimatedTotalFee = quote.assetFixedFee + transferFee;
+        } else {
+            uint256 transferFee = amount * quote.transferFeeBps / 10000;
+            quote.estimatedTotalFee = quote.fixedNativeFee + transferFee;
+        }
+    }
+}
+```
+
+## Fee Distribution
+
+Collected fees are distributed to:
+
+<Steps>
+  <Step title="Validators">
+    Validators earn majority of fees as rewards for securing the network
+  </Step>
+  
+  <Step title="Treasury">
+    Protocol treasury receives portion for development and operations
+  </Step>
+  
+  <Step title="Liquidity Providers">
+    LPs may earn fees in certain configurations
+  </Step>
+  
+  <Step title="Governance">
+    Future fee distribution controlled by DAO governance
+  </Step>
+</Steps>
+
+## Admin Fee Management
+
+### Update Global Fees
+
+```solidity contracts/transfers/DeBridgeGate.sol:401-408
+function updateGlobalFee(
+    uint256 _globalFixedNativeFee,
+    uint16 _globalTransferFeeBps
+) external onlyAdmin {
+    globalFixedNativeFee = _globalFixedNativeFee;
+    globalTransferFeeBps = _globalTransferFeeBps;
+    emit FixedNativeFeeUpdated(_globalFixedNativeFee, _globalTransferFeeBps);
+}
+```
+
+### Update Chain-Specific Fees
+
+```solidity contracts/transfers/DeBridgeGate.sol:381-396
+function updateChainSupport(
+    uint256[] memory _chainIds,
+    ChainSupportInfo[] memory _chainSupportInfo,
+    bool _isChainFrom
+) external onlyAdmin {
+    if (_chainIds.length != _chainSupportInfo.length) revert WrongArgument();
+    
+    for (uint256 i = 0; i < _chainIds.length; i++) {
+        if (_isChainFrom) {
+            getChainFromConfig[_chainIds[i]] = _chainSupportInfo[i];
+        } else {
+            getChainToConfig[_chainIds[i]] = _chainSupportInfo[i];
+        }
+        emit ChainsSupportUpdated(_chainIds[i], _chainSupportInfo[i], _isChainFrom);
+    }
+}
+```
+
+### Update Asset-Specific Fees
+
+```solidity contracts/transfers/DeBridgeGate.sol:414-424
+function updateAssetFixedFees(
+    bytes32 _debridgeId,
+    uint256[] memory _supportedChainIds,
+    uint256[] memory _assetFeesInfo
+) external onlyAdmin {
+    if (_supportedChainIds.length != _assetFeesInfo.length) revert WrongArgument();
+    
+    DebridgeFeeInfo storage debridgeFee = getDebridgeFeeInfo[_debridgeId];
+    for (uint256 i = 0; i < _supportedChainIds.length; i++) {
+        debridgeFee.getChainFee[_supportedChainIds[i]] = _assetFeesInfo[i];
+    }
+}
+```
+
+## Events
+
+```solidity
+// Fee update events
+event FixedNativeFeeUpdated(
+    uint256 globalFixedNativeFee,
+    uint256 globalTransferFeeBps
+);
+
+event FixedNativeFeeAutoUpdated(uint256 globalFixedNativeFee);
+
+event WithdrawnFee(bytes32 debridgeId, uint256 fee);
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Check Fees Before Transfer">
+    Query current fees to ensure user has sufficient balance:
+    
+    ```solidity
+    uint256 fixedFee = deBridgeGate.globalFixedNativeFee();
+    uint256 transferFeeBps = deBridgeGate.globalTransferFeeBps();
+    uint256 totalFee = fixedFee + (amount * transferFeeBps / 10000);
+    
+    require(userBalance >= amount + totalFee, "Insufficient balance");
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle Fee Refunds">
+    If user sends excess native token, it's automatically refunded. Inform users about this.
+  </Accordion>
+  
+  <Accordion title="Display Fee Breakdown">
+    Show users:
+    - Fixed fee amount
+    - Transfer fee amount  
+    - Total fee
+    - Amount they'll receive (after fees)
+  </Accordion>
+  
+  <Accordion title="Monitor Fee Events">
+    Listen for fee update events to keep UI updated:
+    
+    ```javascript
+    deBridgeGate.on('FixedNativeFeeAutoUpdated', (newFee) => {
+        updateFeeDisplay(newFee);
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Never hardcode fee values in your application. Always query current fees dynamically as they can change through governance or auto-updates.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Integration: Sending Assets" icon="paper-plane" href="/integration/sending-assets">
+    Learn how to implement transfers with proper fee handling
+  </Card>
+  
+  <Card title="Asset Transfers" icon="exchange" href="/concepts/transfers">
+    Understand how fees are collected during transfers
+  </Card>
+  
+  <Card title="Cross-Chain Messaging" icon="message" href="/concepts/cross-chain-messaging">
+    Learn about execution fees for cross-chain calls
+  </Card>
+  
+  <Card title="Integration Overview" icon="book" href="/integration/overview">
+    Start building with deBridge Protocol
+  </Card>
+</CardGroup>

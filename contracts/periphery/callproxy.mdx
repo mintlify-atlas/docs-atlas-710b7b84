@@ -1,0 +1,180 @@
+---
+title: "CallProxy"
+description: "Proxy contract for executing cross-chain smart contract calls"
+---
+
+## Overview
+
+CallProxy executes arbitrary smart contract calls on behalf of cross-chain messages. It provides context about the original sender and chain, enabling secure cross-chain interactions.
+
+**Contract Location**: `contracts/periphery/CallProxy.sol`
+
+## Key Features
+
+- Execute contract calls with cross-chain context
+- Support for both native ETH and ERC-20 token transfers
+- Fallback handling for failed calls
+- Reentrancy protection
+- Multi-send support for batched operations
+
+## Context Variables
+
+<ParamField path="submissionChainIdFrom" type="uint256">
+  Chain ID where the cross-chain message originated
+</ParamField>
+
+<ParamField path="submissionNativeSender" type="bytes">
+  Original sender address on the source chain (encoded as bytes)
+</ParamField>
+
+<Info>
+  These context variables are available to the target contract during execution, allowing it to verify the cross-chain caller.
+</Info>
+
+## Main Functions
+
+### call
+
+Executes a contract call with native ETH.
+
+```solidity
+function call(
+    address _reserveAddress,
+    address _receiver,
+    bytes memory _data,
+    uint256 _flags,
+    bytes memory _nativeSender,
+    uint256 _chainIdFrom
+) external payable returns (bool _result)
+```
+
+<ParamField path="_reserveAddress" type="address" required>
+  Address to receive leftover funds if call fails
+</ParamField>
+
+<ParamField path="_receiver" type="address" required>
+  Target contract to call
+</ParamField>
+
+<ParamField path="_data" type="bytes" required>
+  Encoded function call data
+</ParamField>
+
+<ParamField path="_flags" type="uint256" required>
+  Execution flags (revert behavior, sender proxying, etc.)
+</ParamField>
+
+<ParamField path="_nativeSender" type="bytes" required>
+  Original sender on source chain
+</ParamField>
+
+<ParamField path="_chainIdFrom" type="uint256" required>
+  Source chain ID
+</ParamField>
+
+### callERC20
+
+Executes a contract call with ERC-20 tokens.
+
+```solidity
+function callERC20(
+    address _token,
+    address _reserveAddress,
+    address _receiver,
+    bytes memory _data,
+    uint256 _flags,
+    bytes memory _nativeSender,
+    uint256 _chainIdFrom
+) external returns (bool _result)
+```
+
+## Usage Example
+
+Target contracts can access the cross-chain context:
+
+```solidity Accessing Context
+contract MyContract {
+    ICallProxy public callProxy;
+    
+    function handleCrossChainCall() external {
+        // Get original sender from source chain
+        bytes memory nativeSender = callProxy.submissionNativeSender();
+        address sender = abi.decode(nativeSender, (address));
+        
+        // Get source chain ID
+        uint256 chainId = callProxy.submissionChainIdFrom();
+        
+        // Verify the caller is authorized
+        require(sender == authorizedSender && chainId == expectedChain);
+        
+        // Execute logic...
+    }
+}
+```
+
+## Execution Flags
+
+Flags control execution behavior:
+
+- `REVERT_IF_EXTERNAL_FAIL`: Revert entire transaction if target call fails
+- `PROXY_WITH_SENDER`: Provide native sender context to target contract
+- `SEND_HASHED_DATA`: Send hashed data instead of full calldata
+- `SEND_EXTERNAL_CALL_GAS_LIMIT`: Allow custom gas limits
+
+<Accordion title="Flag Examples">
+
+```solidity Setting Flags
+using Flags for uint256;
+
+uint256 flags = uint256(0)
+    .setFlag(Flags.REVERT_IF_EXTERNAL_FAIL, true)
+    .setFlag(Flags.PROXY_WITH_SENDER, true);
+```
+
+</Accordion>
+
+## Multi-Send Support
+
+CallProxy supports batched transactions:
+
+```solidity Batch Execution
+bytes memory transactions = abi.encodePacked(
+    // Transaction 1
+    uint8(0),           // operation (0 = call)
+    target1,            // to address
+    value1,             // ETH value
+    dataLength1,        // data length
+    data1,              // calldata
+    
+    // Transaction 2
+    uint8(0),
+    target2,
+    value2,
+    dataLength2,
+    data2
+);
+
+callProxy.multiSend(transactions);
+```
+
+<Warning>
+  Multi-send operations are atomic — if any transaction fails, all are reverted.
+</Warning>
+
+## Security Considerations
+
+- Reentrancy protection via `lock` modifier
+- Only callable by DeBridgeGate
+- Excess funds returned to reserve address
+- Token approvals cleared after execution
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Cross-Chain Calls Guide" icon="message" href="/integration/cross-chain-calls">
+    Learn how to implement cross-chain calls
+  </Card>
+  <Card title="ICallProxy Interface" icon="code" href="/contracts/interfaces/icallproxy">
+    Interface reference
+  </Card>
+</CardGroup>

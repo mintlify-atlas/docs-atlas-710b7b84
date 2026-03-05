@@ -1,0 +1,240 @@
+---
+title: "Sending Native Tokens (ETH)"
+description: "Transfer native tokens like ETH, BNB, MATIC across chains"
+---
+
+## Overview
+
+This example demonstrates how to send native blockchain tokens (ETH, BNB, MATIC, etc.) cross-chain using deBridge Protocol.
+
+**Script Location**: `examples/src/sendScripts/sendETH.ts`
+
+## Quick Start
+
+```bash Run the Script
+yarn ts-node examples/src/sendScripts/sendETH.ts
+```
+
+This sends the native token from one chain to another and prints the submissionId for tracking.
+
+## Configuration
+
+Update your `.env` file with the required values:
+
+```bash .env
+DEBRIDGEGATE_ADDRESS=0x...      # DeBridgeGate contract address
+SENDER_PRIVATE_KEY=0x...         # Your private key
+CHAIN_ID_FROM=97                 # Source chain (97 = BSC Testnet)
+CHAIN_ID_TO=42                   # Destination chain (42 = Kovan)
+RECEIVER_ADDRESS=0x...           # Recipient address
+AMOUNT=0.1                       # Amount to send in ETH/BNB
+```
+
+## Code Example
+
+```typescript sendETH.ts
+import { ethers } from 'ethers';
+import { DeBridgeGate__factory } from '../typechain-types';
+
+async function main() {
+    // Setup provider and signer
+    const provider = new ethers.providers.JsonRpcProvider(process.env.RPC_URL);
+    const wallet = new ethers.Wallet(process.env.SENDER_PRIVATE_KEY!, provider);
+    
+    // Connect to DeBridgeGate
+    const debridgeGate = DeBridgeGate__factory.connect(
+        process.env.DEBRIDGEGATE_ADDRESS!,
+        wallet
+    );
+    
+    // Calculate fees
+    const amount = ethers.utils.parseEther(process.env.AMOUNT!);
+    const chainIdTo = process.env.CHAIN_ID_TO!;
+    const globalFixedNativeFee = await debridgeGate.globalFixedNativeFee();
+    
+    // Send native token
+    const tx = await debridgeGate.send(
+        ethers.constants.AddressZero,           // native token
+        amount,
+        chainIdTo,
+        ethers.utils.defaultAbiCoder.encode(
+            ['address'],
+            [process.env.RECEIVER_ADDRESS]
+        ),
+        '0x',                                    // no permit
+        false,                                   // useAssetFee
+        0,                                       // referralCode
+        '0x',                                    // no autoParams
+        {
+            value: amount.add(globalFixedNativeFee)
+        }
+    );
+    
+    console.log('Transaction hash:', tx.hash);
+    const receipt = await tx.wait();
+    
+    // Extract submissionId from events
+    const sentEvent = receipt.events?.find(e => e.event === 'Sent');
+    const submissionId = sentEvent?.args?.submissionId;
+    
+    console.log('Submission ID:', submissionId);
+    console.log('Track at: https://testnet-explorer.debridge.finance/');
+}
+
+main().catch(console.error);
+```
+
+## Step-by-Step Breakdown
+
+<Steps>
+  <Step title="Query Protocol Fee">
+    Get the fixed native fee required by the protocol.
+    
+    ```typescript
+    const globalFixedNativeFee = await debridgeGate.globalFixedNativeFee();
+    ```
+  </Step>
+  
+  <Step title="Encode Receiver Address">
+    Encode the receiver address as bytes for cross-chain compatibility.
+    
+    ```typescript
+    const receiverBytes = ethers.utils.defaultAbiCoder.encode(
+        ['address'],
+        [receiverAddress]
+    );
+    ```
+  </Step>
+  
+  <Step title="Call send() Function">
+    Send the transaction with native token + protocol fee.
+    
+    ```typescript
+    const tx = await debridgeGate.send(
+        ethers.constants.AddressZero,  // native token marker
+        amount,
+        chainIdTo,
+        receiverBytes,
+        '0x',                          // no permit
+        false,                         // pay fee separately
+        0,                             // no referral
+        '0x',                          // no auto execution
+        { value: amount.add(fee) }
+    );
+    ```
+  </Step>
+  
+  <Step title="Monitor Transaction">
+    Use the submissionId to track the transaction status in the deBridge explorer.
+  </Step>
+</Steps>
+
+## Fee Calculation
+
+When sending native tokens, you need to include:
+
+1. **Transfer Amount**: The amount you want to send
+2. **Protocol Fee**: Fixed fee in native token
+3. **Optional Execution Fee**: For automatic claiming on destination
+
+```typescript Calculate Total Value
+const transferAmount = ethers.utils.parseEther('0.1');
+const protocolFee = await debridgeGate.globalFixedNativeFee();
+const executionFee = ethers.utils.parseEther('0.01'); // optional
+
+const totalValue = transferAmount
+    .add(protocolFee)
+    .add(executionFee);
+
+await debridgeGate.send(..., { value: totalValue });
+```
+
+## With Automatic Execution
+
+To have the transfer automatically claimed on the destination chain:
+
+```typescript Auto-Execution
+const autoParams = ethers.utils.defaultAbiCoder.encode(
+    ['tuple(uint256,uint256,bytes,bytes)'],
+    [[
+        executionFee,                           // Fee for executor
+        flags,                                  // Execution flags
+        ethers.utils.hexZeroPad('0x', 20),     // Fallback address
+        '0x'                                    // No calldata
+    ]]
+);
+
+await debridgeGate.send(
+    ethers.constants.AddressZero,
+    amount,
+    chainIdTo,
+    receiverBytes,
+    '0x',
+    false,
+    0,
+    autoParams,                                 // Enable auto-execution
+    { value: amount.add(protocolFee).add(executionFee) }
+);
+```
+
+## Tracking the Transfer
+
+After sending, track your transaction:
+
+1. **Source Chain**: View transaction on source chain explorer (Etherscan, BSCscan, etc.)
+2. **deBridge Explorer**: Track cross-chain status at https://testnet-explorer.debridge.finance/
+3. **Destination Chain**: Once claimed, view on destination chain explorer
+
+## Common Errors
+
+<Accordion title="TransferAmountNotCoverFees">
+  
+  You didn't send enough value to cover the protocol fee.
+  
+  **Solution**: Include both transfer amount and protocol fee in `msg.value`:
+  ```typescript
+  { value: amount.add(globalFixedNativeFee) }
+  ```
+  
+</Accordion>
+
+<Accordion title="WrongChainTo">
+  
+  The destination chain is not supported.
+  
+  **Solution**: Check supported chains with:
+  ```typescript
+  const isSupported = await debridgeGate.getChainToConfig(chainId);
+  ```
+  
+</Accordion>
+
+<Accordion title="Insufficient funds">
+  
+  Your wallet doesn't have enough native tokens.
+  
+  **Solution**: Fund your wallet with enough tokens to cover amount + fees.
+  
+</Accordion>
+
+## What Happens Next?
+
+1. **Lock**: Your native tokens are locked in DeBridgeGate on the source chain
+2. **Oracle Signing**: Validators observe and sign the transaction
+3. **Claim**: Transaction is claimed on destination chain (manually or automatically)
+4. **Mint**: Wrapped tokens (deTokens) are minted to the receiver
+
+<Info>
+  On the destination chain, you'll receive wrapped tokens (e.g., deETH, deBNB) that are 1:1 backed by locked collateral.
+</Info>
+
+## Related Examples
+
+<CardGroup cols={2}>
+  <Card title="Sending ERC-20" icon="coins" href="/examples/sending-erc20">
+    Transfer ERC-20 tokens cross-chain
+  </Card>
+  <Card title="Asset Transfers Guide" icon="arrow-right-arrow-left" href="/integration/sending-assets">
+    Complete integration guide
+  </Card>
+</CardGroup>

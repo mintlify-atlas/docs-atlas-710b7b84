@@ -1,0 +1,727 @@
+---
+title: BridgeAppBase Pattern
+description: Advanced integration pattern for building complex cross-chain applications
+---
+
+# BridgeAppBase Pattern
+
+The BridgeAppBase pattern is an architectural approach for building complex cross-chain applications. It provides a reusable base contract that handles common cross-chain communication logic.
+
+## Overview
+
+The pattern provides:
+
+<CardGroup cols={2}>
+  <Card title="Base Contract" icon="layer-group">
+    Reusable contract with common cross-chain functionality
+  </Card>
+  
+  <Card title="Helper Functions" icon="function">
+    Utility functions for sending messages and handling context
+  </Card>
+  
+  <Card title="Access Control" icon="shield">
+    Built-in modifiers for verifying CallProxy and sender
+  </Card>
+  
+  <Card title="Clean Architecture" icon="code">
+    Separates cross-chain logic from business logic
+  </Card>
+</CardGroup>
+
+## Base Contract Implementation
+
+Here's a complete BridgeAppBase implementation:
+
+```solidity Complete BridgeAppBase
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+interface IDeBridgeGate {
+    function sendMessage(
+        uint256 _dstChainId,
+        bytes memory _targetContractAddress,
+        bytes memory _targetContractCalldata,
+        uint256 _flags,
+        uint32 _referralCode
+    ) external payable returns (bytes32 submissionId);
+}
+
+interface ICallProxy {
+    function submissionChainIdFrom() external view returns (uint256);
+    function submissionNativeSender() external view returns (bytes memory);
+}
+
+library Flags {
+    uint256 public constant REVERT_IF_EXTERNAL_FAIL = 1;
+    uint256 public constant PROXY_WITH_SENDER = 2;
+    
+    function setFlag(
+        uint256 _packedFlags,
+        uint256 _flag,
+        bool _value
+    ) internal pure returns (uint256) {
+        if (_value) {
+            return _packedFlags | uint256(1) << _flag;
+        } else {
+            return _packedFlags & ~(uint256(1) << _flag);
+        }
+    }
+}
+
+abstract contract BridgeAppBase is Ownable {
+    /* ========== STATE VARIABLES ========== */
+    
+    IDeBridgeGate public deBridgeGate;
+    address public callProxy;
+    
+    // Track authorized chains
+    mapping(uint256 => bool) public authorizedChains;
+    
+    // Track deployed contract addresses on other chains
+    mapping(uint256 => address) public crossChainContracts;
+    
+    /* ========== EVENTS ========== */
+    
+    event CrossChainMessageSent(
+        uint256 indexed destChainId,
+        bytes32 indexed submissionId,
+        bytes data
+    );
+    
+    event CrossChainMessageReceived(
+        uint256 indexed fromChainId,
+        address indexed sender,
+        bytes data
+    );
+    
+    /* ========== ERRORS ========== */
+    
+    error NotCallProxy();
+    error NotAuthorizedChain(uint256 chainId);
+    error NotAuthorizedSender(address sender);
+    error ContractNotDeployed(uint256 chainId);
+    
+    /* ========== CONSTRUCTOR ========== */
+    
+    constructor(address _deBridgeGate, address _callProxy) {
+        deBridgeGate = IDeBridgeGate(_deBridgeGate);
+        callProxy = _callProxy;
+    }
+    
+    /* ========== MODIFIERS ========== */
+    
+    modifier onlyCallProxy() {
+        if (msg.sender != callProxy) revert NotCallProxy();
+        _;
+    }
+    
+    modifier onlyAuthorizedChain(uint256 chainId) {
+        if (!authorizedChains[chainId]) revert NotAuthorizedChain(chainId);
+        _;
+    }
+    
+    /* ========== INTERNAL FUNCTIONS ========== */
+    
+    /**
+     * @dev Send a message to another chain
+     * @param destChainId Destination chain ID
+     * @param data Encoded function call
+     * @param executionFee Fee for execution
+     * @param revertOnFail Whether to revert if destination call fails
+     */
+    function _sendCrossChainMessage(
+        uint256 destChainId,
+        bytes memory data,
+        uint256 executionFee,
+        bool revertOnFail
+    ) internal onlyAuthorizedChain(destChainId) returns (bytes32 submissionId) {
+        address destContract = crossChainContracts[destChainId];
+        if (destContract == address(0)) revert ContractNotDeployed(destChainId);
+        
+        // Build flags
+        uint256 flags = 0;
+        flags = Flags.setFlag(flags, Flags.PROXY_WITH_SENDER, true);
+        flags = Flags.setFlag(flags, Flags.REVERT_IF_EXTERNAL_FAIL, revertOnFail);
+        
+        // Send message
+        submissionId = deBridgeGate.sendMessage{value: executionFee}(
+            destChainId,
+            abi.encodePacked(destContract),
+            data,
+            flags,
+            0
+        );
+        
+        emit CrossChainMessageSent(destChainId, submissionId, data);
+    }
+    
+    /**
+     * @dev Get the original sender from CallProxy context
+     */
+    function _getOriginalSender() internal view returns (address) {
+        ICallProxy proxy = ICallProxy(msg.sender);
+        bytes memory senderBytes = proxy.submissionNativeSender();
+        return abi.decode(senderBytes, (address));
+    }
+    
+    /**
+     * @dev Get the source chain ID
+     */
+    function _getSourceChain() internal view returns (uint256) {
+        ICallProxy proxy = ICallProxy(msg.sender);
+        return proxy.submissionChainIdFrom();
+    }
+    
+    /**
+     * @dev Verify the sender is an authorized contract on authorized chain
+     */
+    function _verifyAuthorizedSender() internal view {
+        uint256 fromChain = _getSourceChain();
+        if (!authorizedChains[fromChain]) revert NotAuthorizedChain(fromChain);
+        
+        address sender = _getOriginalSender();
+        address expectedSender = crossChainContracts[fromChain];
+        
+        if (sender != expectedSender) revert NotAuthorizedSender(sender);
+    }
+    
+    /* ========== ADMIN FUNCTIONS ========== */
+    
+    function setDeBridgeGate(address _deBridgeGate) external onlyOwner {
+        deBridgeGate = IDeBridgeGate(_deBridgeGate);
+    }
+    
+    function setCallProxy(address _callProxy) external onlyOwner {
+        callProxy = _callProxy;
+    }
+    
+    function authorizeChain(uint256 chainId, bool authorized) external onlyOwner {
+        authorizedChains[chainId] = authorized;
+    }
+    
+    function setCrossChainContract(
+        uint256 chainId,
+        address contractAddress
+    ) external onlyOwner {
+        crossChainContracts[chainId] = contractAddress;
+    }
+}
+```
+
+## Example Application: Cross-Chain Counter
+
+Let's build a simple counter that can be incremented from any chain:
+
+```solidity Example: Cross-Chain Counter
+contract CrossChainCounter is BridgeAppBase {
+    /* ========== STATE ========== */
+    
+    uint256 public counter;
+    
+    mapping(address => uint256) public userIncrements;
+    mapping(uint256 => uint256) public chainIncrements;
+    
+    /* ========== EVENTS ========== */
+    
+    event CounterIncremented(
+        uint256 newValue,
+        address indexed user,
+        uint256 indexed fromChain
+    );
+    
+    /* ========== CONSTRUCTOR ========== */
+    
+    constructor(
+        address _deBridgeGate,
+        address _callProxy
+    ) BridgeAppBase(_deBridgeGate, _callProxy) {}
+    
+    /* ========== PUBLIC FUNCTIONS ========== */
+    
+    /**
+     * @dev Increment counter locally
+     */
+    function increment() external {
+        counter++;
+        userIncrements[msg.sender]++;
+        chainIncrements[block.chainid]++;
+        
+        emit CounterIncremented(counter, msg.sender, block.chainid);
+    }
+    
+    /**
+     * @dev Send increment request to another chain
+     */
+    function incrementOnChain(
+        uint256 destChainId
+    ) external payable {
+        bytes memory data = abi.encodeWithSelector(
+            this.receiveIncrement.selector
+        );
+        
+        _sendCrossChainMessage(
+            destChainId,
+            data,
+            msg.value,
+            false  // Don't revert on fail
+        );
+    }
+    
+    /**
+     * @dev Receive increment from another chain
+     */
+    function receiveIncrement() external onlyCallProxy {
+        _verifyAuthorizedSender();
+        
+        uint256 fromChain = _getSourceChain();
+        address originalSender = _getOriginalSender();
+        
+        counter++;
+        userIncrements[originalSender]++;
+        chainIncrements[fromChain]++;
+        
+        emit CounterIncremented(counter, originalSender, fromChain);
+        emit CrossChainMessageReceived(fromChain, originalSender, "");
+    }
+    
+    /* ========== VIEW FUNCTIONS ========== */
+    
+    function getCounter() external view returns (uint256) {
+        return counter;
+    }
+    
+    function getUserIncrements(address user) external view returns (uint256) {
+        return userIncrements[user];
+    }
+    
+    function getChainIncrements(uint256 chainId) external view returns (uint256) {
+        return chainIncrements[chainId];
+    }
+}
+```
+
+## Example Application: Cross-Chain Token
+
+A more complex example: a token that can be minted from any chain:
+
+```solidity Example: Cross-Chain Mintable Token
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+contract CrossChainToken is ERC20, BridgeAppBase {
+    /* ========== STATE ========== */
+    
+    mapping(address => bool) public authorizedMinters;
+    uint256 public maxSupply;
+    
+    /* ========== EVENTS ========== */
+    
+    event CrossChainMint(
+        address indexed to,
+        uint256 amount,
+        uint256 indexed fromChain,
+        address indexed minter
+    );
+    
+    /* ========== CONSTRUCTOR ========== */
+    
+    constructor(
+        string memory name,
+        string memory symbol,
+        uint256 _maxSupply,
+        address _deBridgeGate,
+        address _callProxy
+    ) ERC20(name, symbol) BridgeAppBase(_deBridgeGate, _callProxy) {
+        maxSupply = _maxSupply;
+    }
+    
+    /* ========== MODIFIERS ========== */
+    
+    modifier onlyAuthorizedMinter() {
+        require(
+            authorizedMinters[msg.sender] || msg.sender == owner(),
+            "Not authorized minter"
+        );
+        _;
+    }
+    
+    /* ========== PUBLIC FUNCTIONS ========== */
+    
+    /**
+     * @dev Request mint on another chain
+     */
+    function requestMintOnChain(
+        uint256 destChainId,
+        address to,
+        uint256 amount
+    ) external payable onlyAuthorizedMinter {
+        bytes memory data = abi.encodeWithSelector(
+            this.receiveMintRequest.selector,
+            to,
+            amount
+        );
+        
+        _sendCrossChainMessage(
+            destChainId,
+            data,
+            msg.value,
+            true  // Revert if fails
+        );
+    }
+    
+    /**
+     * @dev Receive mint request from another chain
+     */
+    function receiveMintRequest(
+        address to,
+        uint256 amount
+    ) external onlyCallProxy {
+        _verifyAuthorizedSender();
+        
+        uint256 fromChain = _getSourceChain();
+        address minter = _getOriginalSender();
+        
+        // Verify minter is authorized on source chain
+        // (In production, maintain authorized minters per chain)
+        
+        require(
+            totalSupply() + amount <= maxSupply,
+            "Exceeds max supply"
+        );
+        
+        _mint(to, amount);
+        
+        emit CrossChainMint(to, amount, fromChain, minter);
+    }
+    
+    /**
+     * @dev Local mint function
+     */
+    function mint(address to, uint256 amount) external onlyAuthorizedMinter {
+        require(
+            totalSupply() + amount <= maxSupply,
+            "Exceeds max supply"
+        );
+        _mint(to, amount);
+    }
+    
+    /* ========== ADMIN ========== */
+    
+    function setAuthorizedMinter(
+        address minter,
+        bool authorized
+    ) external onlyOwner {
+        authorizedMinters[minter] = authorized;
+    }
+}
+```
+
+## Example Application: Cross-Chain Lending
+
+Advanced example: lending protocol with cross-chain deposits:
+
+```solidity Example: Cross-Chain Lending
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+contract CrossChainLending is BridgeAppBase {
+    using SafeERC20 for IERC20;
+    
+    /* ========== STATE ========== */
+    
+    struct UserPosition {
+        uint256 deposited;
+        uint256 borrowed;
+        uint256 lastUpdate;
+    }
+    
+    mapping(address => UserPosition) public positions;
+    mapping(uint256 => uint256) public totalDepositedByChain;
+    
+    uint256 public totalDeposited;
+    uint256 public totalBorrowed;
+    
+    IERC20 public collateralToken;
+    uint256 public collateralRatio = 150; // 150%
+    
+    /* ========== EVENTS ========== */
+    
+    event CrossChainDeposit(
+        address indexed user,
+        uint256 amount,
+        uint256 indexed fromChain
+    );
+    
+    event Borrowed(address indexed user, uint256 amount);
+    event Repaid(address indexed user, uint256 amount);
+    
+    /* ========== CONSTRUCTOR ========== */
+    
+    constructor(
+        address _collateralToken,
+        address _deBridgeGate,
+        address _callProxy
+    ) BridgeAppBase(_deBridgeGate, _callProxy) {
+        collateralToken = IERC20(_collateralToken);
+    }
+    
+    /* ========== PUBLIC FUNCTIONS ========== */
+    
+    /**
+     * @dev Deposit locally
+     */
+    function deposit(uint256 amount) external {
+        collateralToken.safeTransferFrom(msg.sender, address(this), amount);
+        
+        UserPosition storage position = positions[msg.sender];
+        position.deposited += amount;
+        position.lastUpdate = block.timestamp;
+        
+        totalDeposited += amount;
+        totalDepositedByChain[block.chainid] += amount;
+    }
+    
+    /**
+     * @dev Deposit on another chain
+     * Tokens are bridged automatically
+     */
+    function depositOnChain(
+        uint256 destChainId,
+        uint256 amount
+    ) external payable {
+        // Transfer tokens
+        collateralToken.safeTransferFrom(msg.sender, address(this), amount);
+        
+        // Prepare deposit message
+        bytes memory data = abi.encodeWithSelector(
+            this.receiveDeposit.selector,
+            msg.sender,
+            amount
+        );
+        
+        _sendCrossChainMessage(
+            destChainId,
+            data,
+            msg.value,
+            true
+        );
+    }
+    
+    /**
+     * @dev Receive deposit from another chain
+     */
+    function receiveDeposit(
+        address user,
+        uint256 amount
+    ) external onlyCallProxy {
+        _verifyAuthorizedSender();
+        
+        uint256 fromChain = _getSourceChain();
+        
+        UserPosition storage position = positions[user];
+        position.deposited += amount;
+        position.lastUpdate = block.timestamp;
+        
+        totalDeposited += amount;
+        totalDepositedByChain[fromChain] += amount;
+        
+        emit CrossChainDeposit(user, amount, fromChain);
+    }
+    
+    /**
+     * @dev Borrow against collateral
+     */
+    function borrow(uint256 amount) external {
+        UserPosition storage position = positions[msg.sender];
+        
+        uint256 maxBorrow = (position.deposited * 100) / collateralRatio;
+        require(
+            position.borrowed + amount <= maxBorrow,
+            "Insufficient collateral"
+        );
+        
+        position.borrowed += amount;
+        totalBorrowed += amount;
+        
+        collateralToken.safeTransfer(msg.sender, amount);
+        
+        emit Borrowed(msg.sender, amount);
+    }
+    
+    /**
+     * @dev Repay borrowed amount
+     */
+    function repay(uint256 amount) external {
+        UserPosition storage position = positions[msg.sender];
+        require(position.borrowed >= amount, "Repay exceeds debt");
+        
+        collateralToken.safeTransferFrom(msg.sender, address(this), amount);
+        
+        position.borrowed -= amount;
+        totalBorrowed -= amount;
+        
+        emit Repaid(msg.sender, amount);
+    }
+    
+    /* ========== VIEW FUNCTIONS ========== */
+    
+    function getPosition(
+        address user
+    ) external view returns (UserPosition memory) {
+        return positions[user];
+    }
+    
+    function getMaxBorrow(address user) external view returns (uint256) {
+        UserPosition memory position = positions[user];
+        uint256 maxBorrow = (position.deposited * 100) / collateralRatio;
+        return maxBorrow > position.borrowed ? maxBorrow - position.borrowed : 0;
+    }
+}
+```
+
+## Deployment Strategy
+
+### Step 1: Deploy on All Chains
+
+```javascript Example: Multi-Chain Deployment
+const deployToChains = async () => {
+    const chains = [
+        { id: 1, name: "Ethereum", deBridgeGate: "0x..." },
+        { id: 56, name: "BSC", deBridgeGate: "0x..." },
+        { id: 137, name: "Polygon", deBridgeGate: "0x..." },
+    ];
+    
+    const deployments = {};
+    
+    for (const chain of chains) {
+        console.log(`Deploying to ${chain.name}...`);
+        
+        const Contract = await ethers.getContractFactory("CrossChainCounter");
+        const contract = await Contract.deploy(
+            chain.deBridgeGate,
+            callProxyAddress
+        );
+        await contract.deployed();
+        
+        deployments[chain.id] = contract.address;
+        console.log(`Deployed to ${chain.name}: ${contract.address}`);
+    }
+    
+    return deployments;
+};
+```
+
+### Step 2: Configure Cross-Chain Addresses
+
+```javascript Example: Configuration
+const configureContracts = async (deployments) => {
+    for (const [chainId, address] of Object.entries(deployments)) {
+        const contract = await ethers.getContractAt("CrossChainCounter", address);
+        
+        // Authorize all other chains
+        for (const [otherChainId, otherAddress] of Object.entries(deployments)) {
+            if (otherChainId !== chainId) {
+                await contract.authorizeChain(otherChainId, true);
+                await contract.setCrossChainContract(otherChainId, otherAddress);
+                console.log(
+                    `Chain ${chainId} authorized chain ${otherChainId} at ${otherAddress}`
+                );
+            }
+        }
+    }
+};
+```
+
+## Testing
+
+```javascript Example: Integration Test
+describe("CrossChainCounter", function () {
+    let counter1, counter2, deBridgeGate;
+    
+    beforeEach(async function () {
+        // Deploy on "chain 1"
+        counter1 = await CrossChainCounter.deploy(
+            deBridgeGate.address,
+            callProxy.address
+        );
+        
+        // Deploy on "chain 2"
+        counter2 = await CrossChainCounter.deploy(
+            deBridgeGate.address,
+            callProxy.address
+        );
+        
+        // Configure
+        await counter1.authorizeChain(2, true);
+        await counter1.setCrossChainContract(2, counter2.address);
+        
+        await counter2.authorizeChain(1, true);
+        await counter2.setCrossChainContract(1, counter1.address);
+    });
+    
+    it("Should increment on another chain", async function () {
+        // Send increment from chain 1
+        await counter1.incrementOnChain(2, {
+            value: ethers.utils.parseEther("0.1")
+        });
+        
+        // Simulate validators and claim (in real test)
+        // ...
+        
+        // Simulate CallProxy calling counter2
+        await counter2.connect(callProxyMock).receiveIncrement();
+        
+        // Verify counter incremented
+        expect(await counter2.counter()).to.equal(1);
+    });
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Use Base Modifiers">
+    ```solidity
+    function receiveMessage() external onlyCallProxy {
+        _verifyAuthorizedSender();
+        // Your logic
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Emit Events for Tracking">
+    ```solidity
+    emit CrossChainMessageReceived(fromChain, sender, data);
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle State Synchronization">
+    Be careful with state that needs to be consistent across chains.
+  </Accordion>
+  
+  <Accordion title="Test Thoroughly">
+    Test all cross-chain interactions, including failure scenarios.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cross-Chain Calls" icon="phone" href="/integration/cross-chain-calls">
+    Learn more about cross-chain messaging
+  </Card>
+  
+  <Card title="Sending Assets" icon="paper-plane" href="/integration/sending-assets">
+    Master asset transfers
+  </Card>
+  
+  <Card title="Architecture" icon="building" href="/architecture">
+    Understand the system architecture
+  </Card>
+  
+  <Card title="GitHub Examples" icon="github" href="https://github.com/debridge-finance">
+    Browse more example contracts
+  </Card>
+</CardGroup>

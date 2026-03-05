@@ -1,0 +1,93 @@
+---
+title: "IDeBridgeGate Interface"
+description: "Interface reference for the DeBridgeGate contract"
+---
+
+## Overview
+
+IDeBridgeGate defines the public interface for interacting with the main DeBridgeGate contract.
+
+**Interface Location**: `contracts/interfaces/IDeBridgeGate.sol`
+
+## Key Structs
+
+### TokenInfo
+
+```solidity
+struct TokenInfo {
+    uint256 nativeChainId;
+    bytes nativeAddress;
+}
+```
+
+Stores information about a token's native chain and address.
+
+### DebridgeInfo
+
+```solidity
+struct DebridgeInfo {
+    uint256 chainId;
+    uint256 maxAmount;
+    uint256 balance;
+    uint256 lockedInStrategies;
+    address tokenAddress;
+    uint16 minReservesBps;
+    bool exist;
+}
+```
+
+Contains bridge-specific information for an asset.
+
+### SubmissionAutoParamsTo
+
+```solidity
+struct SubmissionAutoParamsTo {
+    uint256 executionFee;
+    uint256 flags;
+    bytes fallbackAddress;
+    bytes data;
+}
+```
+
+Parameters for automatic execution on destination chain.
+
+## Main Functions
+
+See [DeBridgeGate documentation](/contracts/debridgegate) for detailed function descriptions.
+
+## View Functions
+
+```solidity
+function isSubmissionUsed(bytes32 submissionId) external view returns (bool);
+function getNativeInfo(address token) external view returns (uint256 nativeChainId, bytes memory nativeAddress);
+function callProxy() external view returns (address);
+function globalFixedNativeFee() external view returns (uint256);
+function globalTransferFeeBps() external view returns (uint16);
+```
+
+## Integration
+
+```solidity Using the Interface
+import "./interfaces/IDeBridgeGate.sol";
+
+contract MyIntegration {
+    IDeBridgeGate public debridgeGate;
+    
+    constructor(address _gate) {
+        debridgeGate = IDeBridgeGate(_gate);
+    }
+    
+    function bridgeAsset(address token, uint256 amount, uint256 chainId) external payable {
+        debridgeGate.send{value: msg.value}(
+            token,
+            amount,
+            chainId,
+            abi.encodePacked(msg.sender),
+            "",
+            false,
+            0,
+            ""
+        );
+    }
+}
+```

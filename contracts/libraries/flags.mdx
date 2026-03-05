@@ -1,0 +1,144 @@
+---
+title: "Flags Library"
+description: "Library for encoding and decoding execution flags"
+---
+
+## Overview
+
+The Flags library provides utilities for setting and reading bit flags that control cross-chain execution behavior.
+
+**Library Location**: `contracts/libraries/Flags.sol`
+
+## Available Flags
+
+<ParamField path="REVERT_IF_EXTERNAL_FAIL" type="uint8" default="0">
+  Revert entire transaction if the external call fails
+</ParamField>
+
+<ParamField path="PROXY_WITH_SENDER" type="uint8" default="1">
+  Provide native sender context to the target contract
+</ParamField>
+
+<ParamField path="SEND_HASHED_DATA" type="uint8" default="2">
+  Send hashed calldata instead of full data
+</ParamField>
+
+<ParamField path="SEND_EXTERNAL_CALL_GAS_LIMIT" type="uint8" default="3">
+  Include custom gas limit for external call
+</ParamField>
+
+## Functions
+
+### setFlag
+
+```solidity
+function setFlag(uint256 _packedFlags, uint8 _flag, bool _value) 
+    internal pure returns (uint256)
+```
+
+Sets a specific flag to true or false.
+
+### getFlag
+
+```solidity
+function getFlag(uint256 _packedFlags, uint8 _flag) 
+    internal pure returns (bool)
+```
+
+Reads the value of a specific flag.
+
+## Usage Examples
+
+### Setting Flags
+
+```solidity Creating Flag Configuration
+using Flags for uint256;
+
+// Start with no flags set
+uint256 flags = uint256(0);
+
+// Set REVERT_IF_EXTERNAL_FAIL to true
+flags = flags.setFlag(Flags.REVERT_IF_EXTERNAL_FAIL, true);
+
+// Set PROXY_WITH_SENDER to true
+flags = flags.setFlag(Flags.PROXY_WITH_SENDER, true);
+
+// Chain multiple flags
+flags = uint256(0)
+    .setFlag(Flags.REVERT_IF_EXTERNAL_FAIL, true)
+    .setFlag(Flags.PROXY_WITH_SENDER, true)
+    .setFlag(Flags.SEND_EXTERNAL_CALL_GAS_LIMIT, false);
+```
+
+### Reading Flags
+
+```solidity Checking Flag Values
+using Flags for uint256;
+
+bool shouldRevert = flags.getFlag(Flags.REVERT_IF_EXTERNAL_FAIL);
+bool proxySender = flags.getFlag(Flags.PROXY_WITH_SENDER);
+
+if (shouldRevert) {
+    // Handle revert logic
+}
+```
+
+## Common Flag Combinations
+
+### Standard Cross-Chain Call
+
+```solidity
+uint256 flags = uint256(0)
+    .setFlag(Flags.REVERT_IF_EXTERNAL_FAIL, true)
+    .setFlag(Flags.PROXY_WITH_SENDER, true);
+```
+
+Reverts on failure and provides sender context.
+
+### Fire-and-Forget Message
+
+```solidity
+uint256 flags = uint256(0)
+    .setFlag(Flags.REVERT_IF_EXTERNAL_FAIL, false)
+    .setFlag(Flags.PROXY_WITH_SENDER, true);
+```
+
+Doesn't revert on failure, useful for optional notifications.
+
+### Anonymous Call
+
+```solidity
+uint256 flags = uint256(0)
+    .setFlag(Flags.REVERT_IF_EXTERNAL_FAIL, true)
+    .setFlag(Flags.PROXY_WITH_SENDER, false);
+```
+
+Doesn't expose sender information to target.
+
+## Integration Pattern
+
+```solidity Using Flags in Integration
+import "./libraries/Flags.sol";
+
+contract MyBridge {
+    using Flags for uint256;
+    
+    function sendWithFlags(bool shouldRevert, bool proxySender) external {
+        uint256 flags = uint256(0)
+            .setFlag(Flags.REVERT_IF_EXTERNAL_FAIL, shouldRevert)
+            .setFlag(Flags.PROXY_WITH_SENDER, proxySender);
+        
+        debridgeGate.sendMessage(
+            chainId,
+            target,
+            data,
+            flags,
+            referralCode
+        );
+    }
+}
+```
+
+<Tip>
+  Always use the library functions instead of manual bit manipulation to ensure compatibility with future updates.
+</Tip>

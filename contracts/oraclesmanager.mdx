@@ -1,0 +1,81 @@
+---
+title: "OraclesManager"
+description: "Contract for managing the decentralized oracle network"
+---
+
+## Overview
+
+OraclesManager is the base contract for managing the network of independent validators (oracles) who verify and sign cross-chain transactions.
+
+**Contract Location**: `contracts/transfers/OraclesManager.sol`
+
+## State Variables
+
+<ParamField path="minConfirmations" type="uint8">
+  Minimum number of oracle signatures required for transaction confirmation
+</ParamField>
+
+<ParamField path="excessConfirmations" type="uint8">
+  Required confirmations when many oracles are active
+</ParamField>
+
+<ParamField path="requiredOraclesCount" type="uint8">
+  Number of oracles marked as required (must sign every transaction)
+</ParamField>
+
+<ParamField path="oracleAddresses" type="address[]">
+  Array of active oracle addresses
+</ParamField>
+
+## Main Functions
+
+### addOracles
+
+```solidity
+function addOracles(
+    address[] memory _oracles,
+    bool[] memory _required
+) external onlyAdmin
+```
+
+Adds new oracles to the validator set.
+
+### updateOracle
+
+```solidity
+function updateOracle(
+    address _oracle,
+    bool _isValid,
+    bool _required
+) external onlyAdmin
+```
+
+Updates oracle status and requirements.
+
+### setMinConfirmations
+
+```solidity
+function setMinConfirmations(uint8 _minConfirmations) external onlyAdmin
+```
+
+Updates the minimum confirmation threshold.
+
+## Oracle Types
+
+**Required Oracles**: Must sign every transaction for it to be valid
+**Optional Oracles**: Contribute to reaching minimum confirmation threshold
+
+<Warning>
+  At least 51% of oracles must sign for a transaction to be confirmed (minConfirmations ≥ totalOracles / 2 + 1)
+</Warning>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Oracle Concepts" icon="network-wired" href="/concepts/oracles">
+    Learn about the oracle network architecture
+  </Card>
+  <Card title="SignatureVerifier" icon="shield-check" href="/contracts/signatureverifier">
+    Signature verification contract
+  </Card>
+</CardGroup>

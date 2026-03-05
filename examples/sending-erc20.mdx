@@ -1,0 +1,289 @@
+---
+title: "Sending ERC-20 Tokens"
+description: "Transfer ERC-20 tokens like USDC, USDT, DAI across chains"
+---
+
+## Overview
+
+This example demonstrates how to send ERC-20 tokens cross-chain using deBridge Protocol, including permit support for gasless approvals.
+
+**Script Location**: `examples/src/sendScripts/sendERC20.ts`
+
+## Quick Start
+
+```bash Run the Script
+yarn ts-node examples/src/sendScripts/sendERC20.ts
+```
+
+## Configuration
+
+```bash .env
+DEBRIDGEGATE_ADDRESS=0x...       # DeBridgeGate contract
+SENDER_PRIVATE_KEY=0x...          # Your private key
+TOKEN_ADDRESS=0x...               # ERC-20 token to send
+CHAIN_ID_FROM=1                   # Source chain (Ethereum)
+CHAIN_ID_TO=56                    # Destination chain (BSC)
+RECEIVER_ADDRESS=0x...            # Recipient
+AMOUNT=100                        # Amount in token units
+```
+
+## Standard Approval Method
+
+```typescript Standard ERC-20 Send
+import { ethers } from 'ethers';
+import { DeBridgeGate__factory, IERC20__factory } from '../typechain-types';
+
+async function sendERC20() {
+    const provider = new ethers.providers.JsonRpcProvider(process.env.RPC_URL);
+    const wallet = new ethers.Wallet(process.env.SENDER_PRIVATE_KEY!, provider);
+    
+    // Connect to contracts
+    const token = IERC20__factory.connect(process.env.TOKEN_ADDRESS!, wallet);
+    const debridgeGate = DeBridgeGate__factory.connect(
+        process.env.DEBRIDGEGATE_ADDRESS!,
+        wallet
+    );
+    
+    const amount = ethers.utils.parseUnits(
+        process.env.AMOUNT!,
+        await token.decimals()
+    );
+    
+    // Step 1: Approve DeBridgeGate to spend tokens
+    console.log('Approving tokens...');
+    const approveTx = await token.approve(debridgeGate.address, amount);
+    await approveTx.wait();
+    console.log('Approved');
+    
+    // Step 2: Send tokens
+    console.log('Sending tokens...');
+    const protocolFee = await debridgeGate.globalFixedNativeFee();
+    
+    const tx = await debridgeGate.send(
+        token.address,                          // ERC-20 token
+        amount,
+        process.env.CHAIN_ID_TO!,
+        ethers.utils.defaultAbiCoder.encode(['address'], [process.env.RECEIVER_ADDRESS]),
+        '0x',                                   // no permit
+        false,                                  // pay fee in native token
+        0,                                      // no referral
+        '0x',                                   // no autoParams
+        { value: protocolFee }                  // protocol fee in ETH/BNB
+    );
+    
+    console.log('Transaction hash:', tx.hash);
+    const receipt = await tx.wait();
+    
+    const sentEvent = receipt.events?.find(e => e.event === 'Sent');
+    console.log('Submission ID:', sentEvent?.args?.submissionId);
+}
+
+sendERC20().catch(console.error);
+```
+
+## Using Permit (Gasless Approval)
+
+For tokens supporting EIP-2612 permit:
+
+```typescript Permit-Based Send
+import { ethers } from 'ethers';
+
+async function sendWithPermit() {
+    // ... setup ...
+    
+    // Get permit parameters
+    const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+    const nonce = await token.nonces(wallet.address);
+    
+    // Sign permit
+    const domain = {
+        name: await token.name(),
+        version: '1',
+        chainId: await wallet.getChainId(),
+        verifyingContract: token.address
+    };
+    
+    const types = {
+        Permit: [
+            { name: 'owner', type: 'address' },
+            { name: 'spender', type: 'address' },
+            { name: 'value', type: 'uint256' },
+            { name: 'nonce', type: 'uint256' },
+            { name: 'deadline', type: 'uint256' }
+        ]
+    };
+    
+    const value = {
+        owner: wallet.address,
+        spender: debridgeGate.address,
+        value: amount,
+        nonce: nonce,
+        deadline: deadline
+    };
+    
+    const signature = await wallet._signTypedData(domain, types, value);
+    const { v, r, s } = ethers.utils.splitSignature(signature);
+    
+    // Encode permit data
+    const permitData = ethers.utils.defaultAbiCoder.encode(
+        ['uint256', 'uint8', 'bytes32', 'bytes32'],
+        [deadline, v, r, s]
+    );
+    
+    // Send with permit (no separate approval transaction needed!)
+    const tx = await debridgeGate.send(
+        token.address,
+        amount,
+        chainIdTo,
+        receiverBytes,
+        permitData,                             // Permit signature
+        false,
+        0,
+        '0x',
+        { value: protocolFee }
+    );
+    
+    console.log('Sent with permit:', tx.hash);
+}
+```
+
+<Tip>
+  Using permit saves one transaction (no separate approval needed) and can be signed off-chain.
+</Tip>
+
+## Paying Fees in Asset
+
+Instead of paying protocol fees in native tokens, you can deduct fees from the transferred amount:
+
+```typescript Fee Deduction from Transfer
+const tx = await debridgeGate.send(
+    token.address,
+    amount,
+    chainIdTo,
+    receiverBytes,
+    '0x',
+    true,                                       // useAssetFee = true
+    0,
+    '0x'
+    // No value needed - fee deducted from amount
+);
+```
+
+With `useAssetFee = true`:
+- Protocol fee is converted to token amount and deducted
+- Receiver gets `amount - fees` on destination
+- No native token needed in your wallet
+
+## Checking Token Support
+
+Before sending, verify the token is supported:
+
+```typescript Check Token Support
+const debridgeId = await debridgeGate.getDebridgeId(
+    chainIdFrom,
+    ethers.utils.hexZeroPad(tokenAddress, 32)
+);
+
+const debridgeInfo = await debridgeGate.getDebridge(debridgeId);
+
+if (!debridgeInfo.exist) {
+    console.error('Token not supported');
+    return;
+}
+
+if (amount.gt(debridgeInfo.maxAmount)) {
+    console.error('Amount exceeds maximum');
+    return;
+}
+
+console.log('Token supported, max amount:', debridgeInfo.maxAmount);
+```
+
+## With Automatic Execution
+
+```typescript Auto-Execute on Destination
+const executionFee = ethers.utils.parseEther('0.01');
+const flags = 0; // Or use Flags library
+
+const autoParams = ethers.utils.defaultAbiCoder.encode(
+    ['tuple(uint256,uint256,bytes,bytes)'],
+    [[
+        executionFee,
+        flags,
+        receiverBytes,                          // Fallback address
+        '0x'                                    // No additional calldata
+    ]]
+);
+
+const tx = await debridgeGate.send(
+    token.address,
+    amount,
+    chainIdTo,
+    receiverBytes,
+    '0x',
+    false,
+    0,
+    autoParams,
+    { value: protocolFee.add(executionFee) }   // Include execution fee
+);
+```
+
+## What Happens on Destination
+
+Depending on the token and destination chain:
+
+1. **Native Chain → Other Chain**: Wrapped deToken is minted (e.g., deUSDC)
+2. **Other Chain → Native Chain**: Original token is unlocked
+3. **Between Non-Native Chains**: deToken is transferred or bridged
+
+<Info>
+  All deTokens are 1:1 backed by collateral locked on the token's native chain.
+</Info>
+
+## Common Issues
+
+<Accordion title="Insufficient allowance">
+  
+  The approval wasn't sufficient or expired.
+  
+  **Solution**: Check allowance and re-approve:
+  ```typescript
+  const allowance = await token.allowance(wallet.address, debridgeGate.address);
+  if (allowance.lt(amount)) {
+      await token.approve(debridgeGate.address, ethers.constants.MaxUint256);
+  }
+  ```
+  
+</Accordion>
+
+<Accordion title="Token not supported">
+  
+  The token hasn't been added to deBridge for the destination chain.
+  
+  **Solution**: 
+  - Check supported tokens in the deBridge app
+  - Contact deBridge team to add the token
+  - Use a different supported token
+  
+</Accordion>
+
+<Accordion title="Amount exceeds maximum">
+  
+  The transfer amount exceeds the configured `maxAmount` for the asset.
+  
+  **Solution**: 
+  - Split into multiple smaller transfers
+  - Check `maxAmount` with `getDebridge()`
+  
+</Accordion>
+
+## Related Examples
+
+<CardGroup cols={2}>
+  <Card title="Sending Native Tokens" icon="ethereum" href="/examples/sending-eth">
+    Transfer ETH, BNB, MATIC
+  </Card>
+  <Card title="Cross-Chain Swaps" icon="arrows-rotate" href="/examples/cross-chain-swap">
+    Swap tokens across chains
+  </Card>
+</CardGroup>

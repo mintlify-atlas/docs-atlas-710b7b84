@@ -1,0 +1,612 @@
+---
+title: Asset Transfers
+description: Learn how asset transfers work in deBridge Protocol using lock-and-mint mechanism
+---
+
+# Asset Transfers
+
+The deBridge Protocol enables secure cross-chain asset transfers using a **lock-and-mint** mechanism. This page explains how transfers work, the different transfer types, and the security model.
+
+## Overview
+
+Asset transfers in deBridge work differently depending on the direction:
+
+<CardGroup cols={2}>
+  <Card title="From Native Chain" icon="lock">
+    Assets are **locked** in DeBridgeGate contract on the native chain
+  </Card>
+  
+  <Card title="To Secondary Chain" icon="coins">
+    Wrapped assets (deAssets) are **minted** on the destination chain
+  </Card>
+  
+  <Card title="From Secondary Chain" icon="fire">
+    deAssets are **burned** on the source chain
+  </Card>
+  
+  <Card title="To Native Chain" icon="unlock">
+    Original assets are **unlocked** from collateral
+  </Card>
+</CardGroup>
+
+## Transfer Flow
+
+### Transfer from Native Chain
+
+When transferring an asset from its native chain to a secondary chain:
+
+<Steps>
+  <Step title="User Initiates Transfer">
+    User calls `send()` on DeBridgeGate with the asset and destination chain
+    
+    ```solidity
+    deBridgeGate.send{
+      value: msg.value  // for native tokens
+    }(
+      tokenAddress,     // address(0) for native, token address for ERC20
+      amount,
+      chainIdTo,
+      receiverBytes,
+      permitEnvelope,   // optional: EIP-2612 permit
+      useAssetFee,      // pay fees in asset vs native token
+      referralCode,     // optional: referral tracking
+      autoParams        // optional: cross-chain call params
+    );
+    ```
+  </Step>
+  
+  <Step title="Asset Locked">
+    The protocol locks the asset in DeBridgeGate contract:
+    
+    ```solidity
+    // For native tokens (ETH, BNB, etc.)
+    if (_tokenAddress == address(0)) {
+        _amount = msg.value;
+        weth.deposit{value: _amount}();  // Wrap to WETH
+        _useAssetFee = true;
+    } else {
+        // For ERC20 tokens
+        token.safeTransferFrom(msg.sender, address(this), _amount);
+    }
+    
+    // Update balance
+    debridge.balance += amountAfterFee;
+    ```
+    
+    *Source: contracts/transfers/DeBridgeGate.sol:700-774*
+  </Step>
+  
+  <Step title="Fees Deducted">
+    Protocol fees are calculated and deducted:
+    
+    - **Fixed Fee**: Flat fee in native token or asset
+    - **Transfer Fee**: Percentage of transfer amount (in BPS)
+    - **Discounts**: Applied if user has fee discount
+    
+    ```solidity
+    uint256 transferFee = (chainFees.transferFeeBps == 0
+        ? globalTransferFeeBps : chainFees.transferFeeBps)
+        * (_amount - assetsFixedFee) / BPS_DENOMINATOR;
+    
+    transferFee = _applyDiscount(transferFee, discountInfo.discountTransferBps);
+    
+    amountAfterFee = _amount - (transferFee + assetsFixedFee);
+    ```
+  </Step>
+  
+  <Step title="Event Emitted">
+    `Sent` event is emitted with submission details:
+    
+    ```solidity
+    emit Sent(
+        submissionId,      // Unique identifier
+        debridgeId,        // Asset identifier
+        amountAfterFee,    // Amount minus fees
+        receiver,
+        nonce,
+        chainIdTo,
+        referralCode,
+        feeParams,
+        autoParams,
+        msg.sender
+    );
+    ```
+  </Step>
+  
+  <Step title="Validators Sign">
+    Off-chain validators monitor the event and sign the transaction after validation:
+    
+    - Verify transaction on source chain
+    - Check protocol state and parameters
+    - Generate ECDSA signature
+    - Submit signature to aggregation layer
+  </Step>
+  
+  <Step title="Claim on Destination">
+    Once enough signatures collected, `claim()` is called on destination chain:
+    
+    ```solidity
+    deBridgeGate.claim(
+        debridgeId,
+        amount,
+        chainIdFrom,
+        receiver,
+        nonce,
+        signatures,  // Aggregated validator signatures
+        autoParams
+    );
+    ```
+  </Step>
+  
+  <Step title="deAsset Minted">
+    DeBridgeToken (deAsset) is minted to the receiver:
+    
+    ```solidity
+    if (isNativeToken) {
+        // Unlock from collateral
+        IERC20Upgradeable(_token).safeTransfer(_receiver, _amount);
+    } else {
+        // Mint deAsset
+        IDeBridgeToken(_token).mint(_receiver, _amount);
+    }
+    
+    debridge.balance += _amount;
+    ```
+    
+    *Source: contracts/transfers/DeBridgeGate.sol:944-957*
+  </Step>
+</Steps>
+
+### Transfer from Secondary Chain
+
+When transferring back from a secondary chain to the native chain:
+
+<Steps>
+  <Step title="User Initiates Transfer">
+    User calls `send()` with deAsset on the secondary chain
+  </Step>
+  
+  <Step title="deAsset Burned">
+    The protocol burns the deAsset:
+    
+    ```solidity
+    if (isNativeToken) {
+        debridge.balance += amountAfterFee;
+    } else {
+        debridge.balance -= amountAfterFee;
+        IDeBridgeToken(debridge.tokenAddress).burn(amountAfterFee);
+    }
+    ```
+    
+    *Source: contracts/transfers/DeBridgeGate.sol:773-779*
+  </Step>
+  
+  <Step title="Validators Sign">
+    Validators sign the burn transaction
+  </Step>
+  
+  <Step title="Claim on Native Chain">
+    `claim()` is called on the native chain with signatures
+  </Step>
+  
+  <Step title="Asset Unlocked">
+    Original asset is unlocked from collateral and transferred to receiver:
+    
+    ```solidity
+    debridge.balance -= _amount;
+    IERC20Upgradeable(_token).safeTransfer(_receiver, _amount);
+    ```
+  </Step>
+</Steps>
+
+## Transfer Types
+
+### Simple Asset Transfer
+
+Basic transfer of tokens without additional logic:
+
+```solidity Example: Simple Transfer
+// Transfer ERC20 token
+IERC20(token).approve(address(deBridgeGate), amount);
+
+deBridgeGate.send(
+    tokenAddress,
+    amount,
+    destinationChainId,
+    abi.encodePacked(receiverAddress),
+    "",      // no permit
+    false,   // pay fee in native token
+    0,       // no referral
+    ""       // no auto params
+);
+```
+
+### Transfer with Auto-Execution
+
+Transfer with automatic contract call on destination:
+
+```solidity Example: Transfer with Auto-Execution
+// Prepare auto-execution parameters
+SubmissionAutoParamsTo memory autoParams = SubmissionAutoParamsTo({
+    executionFee: 0.01 ether,  // Fee for executor
+    flags: Flags.setFlag(0, Flags.REVERT_IF_EXTERNAL_FAIL, true),
+    fallbackAddress: abi.encodePacked(msg.sender),
+    data: abi.encodeWithSignature(
+        "swap(address,uint256)",
+        tokenOut,
+        minAmountOut
+    )
+});
+
+deBridgeGate.send(
+    tokenAddress,
+    amount,
+    destinationChainId,
+    abi.encodePacked(targetSwapContract),
+    "",
+    false,
+    0,
+    abi.encode(autoParams)
+);
+```
+
+### Transfer with Permit
+
+Gasless approval using EIP-2612:
+
+```solidity Example: Transfer with Permit
+// Prepare permit signature off-chain
+// permitEnvelope = abi.encodePacked(amount, deadline, r, s, v)
+
+deBridgeGate.send(
+    tokenAddress,
+    amount,
+    destinationChainId,
+    abi.encodePacked(receiverAddress),
+    permitEnvelope,  // Includes signature
+    false,
+    0,
+    ""
+);
+```
+
+## Asset Identification
+
+Each asset is identified by a `debridgeId`:
+
+```solidity
+// Calculate debridgeId
+function getDebridgeId(
+    uint256 _chainId,
+    address _tokenAddress
+) public pure returns (bytes32) {
+    return keccak256(abi.encodePacked(_chainId, _tokenAddress));
+}
+
+// For non-EVM chains with bytes addresses
+function getbDebridgeId(
+    uint256 _chainId,
+    bytes memory _tokenAddress
+) public pure returns (bytes32) {
+    return keccak256(abi.encodePacked(_chainId, _tokenAddress));
+}
+```
+
+*Source: contracts/transfers/DeBridgeGate.sol:1007-1016*
+
+## Asset Registration
+
+New assets can be registered through validator consensus:
+
+```solidity
+function deployNewAsset(
+    bytes memory _nativeTokenAddress,
+    uint256 _nativeChainId,
+    string memory _name,
+    string memory _symbol,
+    uint8 _decimals,
+    bytes memory _signatures  // Validator signatures
+) external nonReentrant whenNotPaused {
+    bytes32 debridgeId = getbDebridgeId(_nativeChainId, _nativeTokenAddress);
+    
+    // Verify doesn't already exist
+    if (getDebridge[debridgeId].exist) revert AssetAlreadyExist();
+    
+    // Verify signatures
+    bytes32 deployId = getDeployId(debridgeId, _name, _symbol, _decimals);
+    ISignatureVerifier(signatureVerifier).submit(
+        deployId,
+        _signatures,
+        excessConfirmations
+    );
+    
+    // Deploy deAsset
+    address deBridgeTokenAddress = IDeBridgeTokenDeployer(deBridgeTokenDeployer)
+        .deployAsset(debridgeId, _name, _symbol, _decimals);
+    
+    // Register asset
+    _addAsset(debridgeId, deBridgeTokenAddress, _nativeTokenAddress, _nativeChainId);
+}
+```
+
+*Source: contracts/transfers/DeBridgeGate.sol:343-364*
+
+## Submission ID Generation
+
+Each transfer has a unique `submissionId`:
+
+### Regular Submission
+
+```solidity
+submissionId = keccak256(
+    abi.encodePacked(
+        SUBMISSION_PREFIX,   // = 1
+        debridgeId,
+        chainIdFrom,
+        chainIdTo,
+        amount,
+        receiver,
+        nonce
+    )
+);
+```
+
+### Auto-Execution Submission
+
+```solidity
+submissionId = keccak256(
+    abi.encodePacked(
+        SUBMISSION_PREFIX,
+        debridgeId,
+        chainIdFrom,
+        chainIdTo,
+        amount,
+        receiver,
+        nonce,
+        autoParams.executionFee,
+        autoParams.flags,
+        keccak256(autoParams.fallbackAddress),
+        keccak256(autoParams.data),  // Or raw data if SEND_HASHED_DATA flag
+        keccak256(abi.encodePacked(nativeSender))
+    )
+);
+```
+
+*Source: contracts/transfers/DeBridgeGate.sol:783-820*
+
+## Security Features
+
+### Amount Thresholds
+
+Large transfers require additional confirmations:
+
+```solidity
+// Check if amount exceeds threshold
+ISignatureVerifier(signatureVerifier).submit(
+    _submissionId,
+    _signatures,
+    _amount >= getAmountThreshold[_debridgeId] 
+        ? excessConfirmations  // More confirmations required
+        : 0                     // Standard confirmations
+);
+```
+
+### Reserve Requirements
+
+Assets can have minimum reserve ratios:
+
+```solidity
+struct DebridgeInfo {
+    uint256 balance;          // Total locked/minted
+    uint256 maxAmount;        // Maximum transfer limit
+    uint16 minReservesBps;   // Minimum hot reserves (1/10000)
+    // ...
+}
+```
+
+This ensures sufficient liquidity is always available.
+
+### Transfer Limits
+
+```solidity
+if (_amount > debridge.maxAmount) revert TransferAmountTooHigh();
+```
+
+Admins can set per-asset maximum transfer amounts.
+
+### Submission Protection
+
+```solidity
+// Check if already claimed
+if (isSubmissionUsed[submissionId]) revert SubmissionUsed();
+isSubmissionUsed[submissionId] = true;
+
+// Check if blocked by admin
+if (isBlockedSubmission[submissionId]) revert SubmissionBlocked();
+```
+
+## Token Amount Normalization
+
+To prevent dust and optimize gas, amounts are normalized:
+
+```solidity
+function _normalizeTokenAmount(
+    address _token,
+    uint256 _amount
+) internal view returns (uint256) {
+    uint256 decimals = _token == address(0)
+        ? 18
+        : IERC20Metadata(_token).decimals();
+    
+    uint256 maxDecimals = 8;
+    if (decimals > maxDecimals) {
+        // Round down to 8 decimals
+        uint256 multiplier = 10 ** (decimals - maxDecimals);
+        _amount = _amount / multiplier * multiplier;
+    }
+    return _amount;
+}
+```
+
+*Source: contracts/transfers/DeBridgeGate.sol:987-1000*
+
+<Warning>
+  For tokens with more than 8 decimals, very small amounts may be rounded down to zero. Always transfer meaningful amounts.
+</Warning>
+
+## Native Token Handling
+
+Native tokens (ETH, BNB, MATIC) are wrapped before bridging:
+
+```solidity
+if (_tokenAddress == address(0)) {
+    // Use msg.value as amount for native tokens
+    _amount = msg.value;
+    weth.deposit{value: _amount}();  // Wrap to WETH
+    _useAssetFee = true;
+}
+```
+
+On the destination chain, users can choose to receive wrapped or unwrapped:
+
+```solidity
+bool unwrapETH = isNativeToken
+    && _autoParams.flags.getFlag(Flags.UNWRAP_ETH)
+    && _token == address(weth);
+
+if (unwrapETH) {
+    _withdrawWeth(_receiver, _amount);  // Unwrap and send ETH
+} else {
+    _mintOrTransfer(_token, _receiver, _amount, isNativeToken);
+}
+```
+
+## Balance Tracking
+
+The protocol tracks locked/minted amounts:
+
+```solidity
+// On lock/mint
+if (isNativeToken) {
+    debridge.balance += amountAfterFee;  // Increase locked
+} else {
+    debridge.balance += amountAfterFee;  // Increase minted
+}
+
+// On unlock/burn
+if (isNativeToken) {
+    debridge.balance -= _amount;  // Decrease locked
+} else {
+    debridge.balance -= _amount;  // Decrease minted
+}
+```
+
+Monitoring events track these balances:
+
+```solidity
+emit MonitoringSendEvent(
+    submissionId,
+    nonce,
+    debridge.balance,
+    IERC20Upgradeable(debridge.tokenAddress).totalSupply()
+);
+```
+
+## Best Practices
+
+<Tip>
+  **Testing**: Always test transfers on testnets first with small amounts before moving to mainnet.
+</Tip>
+
+<AccordionGroup>
+  <Accordion title="Check Fees Before Transfer">
+    Query fee parameters to ensure sufficient funds:
+    
+    ```solidity
+    uint256 fixedFee = deBridgeGate.globalFixedNativeFee();
+    uint256 transferFeeBps = deBridgeGate.globalTransferFeeBps();
+    uint256 totalFee = fixedFee + (amount * transferFeeBps / 10000);
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle Failed Transfers">
+    Monitor events and implement fallback logic for failed cross-chain calls:
+    
+    ```solidity
+    autoParams.fallbackAddress = abi.encodePacked(msg.sender);
+    autoParams.flags = Flags.setFlag(0, Flags.REVERT_IF_EXTERNAL_FAIL, false);
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Permit for Better UX">
+    Implement EIP-2612 permit to avoid separate approval transactions:
+    
+    ```solidity
+    // User signs permit off-chain
+    // No approval transaction needed
+    deBridgeGate.send(..., permitEnvelope, ...);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Events
+
+Key events to monitor:
+
+```solidity
+// When transfer is initiated
+event Sent(
+    bytes32 submissionId,
+    bytes32 indexed debridgeId,
+    uint256 amount,
+    bytes receiver,
+    uint256 nonce,
+    uint256 indexed chainIdTo,
+    uint32 referralCode,
+    FeeParams feeParams,
+    bytes autoParams,
+    address nativeSender
+);
+
+// When transfer is completed
+event Claimed(
+    bytes32 submissionId,
+    bytes32 indexed debridgeId,
+    uint256 amount,
+    address indexed receiver,
+    uint256 nonce,
+    uint256 indexed chainIdFrom,
+    bytes autoParams,
+    bool isNativeToken
+);
+
+// When new asset is registered
+event PairAdded(
+    bytes32 debridgeId,
+    address tokenAddress,
+    bytes nativeAddress,
+    uint256 indexed nativeChainId,
+    uint256 maxAmount,
+    uint16 minReservesBps
+);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cross-Chain Messaging" icon="message" href="/concepts/cross-chain-messaging">
+    Learn how to send arbitrary data across chains
+  </Card>
+  
+  <Card title="Fee Structure" icon="dollar-sign" href="/concepts/fees">
+    Understand protocol fees and optimization
+  </Card>
+  
+  <Card title="Integration: Sending Assets" icon="paper-plane" href="/integration/sending-assets">
+    Practical guide to implementing asset transfers
+  </Card>
+  
+  <Card title="Oracle Network" icon="network-wired" href="/concepts/oracles">
+    Learn about validators and consensus mechanism
+  </Card>
+</CardGroup>

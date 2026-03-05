@@ -1,0 +1,123 @@
+---
+title: "FeeProxy"
+description: "Contract for collecting and managing protocol fees"
+---
+
+## Overview
+
+FeeProxy (SimpleFeeProxy) is a helper contract that withdraws collected fees from DeBridgeGate and transfers them to the treasury. It supports both native tokens and ERC-20 tokens.
+
+**Contract Location**: `contracts/periphery/SimpleFeeProxy.sol`
+
+## Key Functions
+
+### withdrawFee
+
+Withdraws collected fees for a specific asset.
+
+```solidity
+function withdrawFee(bytes32 _debridgeId) external
+```
+
+<ParamField path="_debridgeId" type="bytes32" required>
+  Unique identifier for the bridged asset
+</ParamField>
+
+This function:
+1. Calculates available fees (collected - withdrawn)
+2. Calls DeBridgeGate.withdrawFee()
+3. Transfers fees to treasury address
+
+## Fee Collection Flow
+
+<Steps>
+  <Step title="Fees Accumulate">
+    Users pay fees when sending assets cross-chain. Fees accumulate in DeBridgeGate.
+  </Step>
+  
+  <Step title="Withdrawal Trigger">
+    FeeProxy.withdrawFee() is called (manually or automatically)
+  </Step>
+  
+  <Step title="Transfer to Treasury">
+    Fees are transferred from DeBridgeGate through FeeProxy to the treasury
+  </Step>
+</Steps>
+
+## Configuration
+
+<ParamField path="treasury" type="address">
+  Address that receives withdrawn fees
+</ParamField>
+
+<ParamField path="deBridgeGate" type="address">
+  DeBridgeGate contract address
+</ParamField>
+
+## Admin Functions
+
+### setTreasury
+
+```solidity
+function setTreasury(address _treasury) external onlyAdmin
+```
+
+Updates the treasury address.
+
+## Usage Example
+
+```solidity Withdraw Fees
+// Get debridgeId for USDC from Ethereum
+bytes32 debridgeId = deBridgeGate.getDebridgeId(
+    1,              // Ethereum chain ID
+    usdcAddress    // USDC token address
+);
+
+// Withdraw fees
+feeProxy.withdrawFee(debridgeId);
+
+// Fees are now in treasury
+```
+
+## Batch Withdrawals
+
+```solidity Withdraw Multiple Assets
+bytes32[] memory debridgeIds = new bytes32[](3);
+debridgeIds[0] = ethDebridgeId;
+debridgeIds[1] = usdcDebridgeId;
+debridgeIds[2] = usdtDebridgeId;
+
+for (uint i = 0; i < debridgeIds.length; i++) {
+    feeProxy.withdrawFee(debridgeIds[i]);
+}
+```
+
+## Fee Tracking
+
+Fees can be queried before withdrawal:
+
+```solidity Check Available Fees
+DeBridgeFeeInfo memory feeInfo = deBridgeGate.getDebridgeFeeInfo(debridgeId);
+
+uint256 collectedFees = feeInfo.collectedFees;
+uint256 withdrawnFees = feeInfo.withdrawnFees;
+uint256 availableFees = collectedFees - withdrawnFees;
+```
+
+## Security
+
+- Only callable by authorized addresses
+- Fees can only go to designated treasury
+- Atomic withdrawal operations
+- No fee skimming or manipulation
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Fee Structure" icon="coins" href="/concepts/fees">
+    Learn about protocol fees
+  </Card>
+  <Card title="DeBridgeGate" icon="door-open" href="/contracts/debridgegate">
+    Main bridge contract
+  </Card>
+</CardGroup>

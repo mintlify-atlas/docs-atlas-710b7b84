@@ -1,0 +1,391 @@
+---
+title: "Testing Guide"
+description: "Run and write tests for deBridge smart contracts"
+---
+
+## Running Tests
+
+<Tabs>
+  <Tab title="All Tests">
+    Run the complete test suite:
+    
+    ```bash
+    yarn test
+    ```
+    
+    Expected output:
+    ```
+    DeBridgePipeline
+      ✓ Should send native asset (432ms)
+      ✓ Should send ERC20 token (523ms)
+      ✓ Should claim transfer (891ms)
+      ...
+    
+    85 passing (2m 14s)
+    ```
+  </Tab>
+  
+  <Tab title="Specific Test">
+    Run a single test file:
+    
+    ```bash
+    yarn hardhat test test/05_DebridgePipeline.test.js
+    ```
+  </Tab>
+  
+  <Tab title="With Coverage">
+    Generate code coverage report:
+    
+    ```bash
+    yarn coverage
+    ```
+    
+    Creates a coverage report in `coverage/` directory.
+  </Tab>
+  
+  <Tab title="CI Mode">
+    Run in CI environment:
+    
+    ```bash
+    yarn test:ci
+    ```
+    
+    Compiles contracts first, then runs tests.
+  </Tab>
+</Tabs>
+
+## Test Structure
+
+Tests are organized in the `test/` directory:
+
+```
+test/
+├── 00_CallProxy.test.js           # CallProxy unit tests
+├── 00_SignatureVerifier.test.js   # Signature verification tests
+├── 02_LightDebridge.test.js        # Basic bridge functionality
+├── 05_DebridgePipeline.test.js     # Full integration tests
+├── SimpleFeeProxy.test.ts         # Fee proxy tests
+└── utils/                         # Test utilities
+    ├── signature.js
+    ├── helpers.js
+    └── constants.js
+```
+
+## Writing Tests
+
+### Basic Test Template
+
+```javascript Basic Test Structure
+const { expect } = require('chai');
+const { ethers } = require('hardhat');
+
+describe('MyContract', function () {
+    let myContract;
+    let owner, user1, user2;
+    
+    beforeEach(async function () {
+        // Get signers
+        [owner, user1, user2] = await ethers.getSigners();
+        
+        // Deploy contract
+        const MyContract = await ethers.getContractFactory('MyContract');
+        myContract = await MyContract.deploy();
+        await myContract.deployed();
+    });
+    
+    it('Should perform action correctly', async function () {
+        // Arrange
+        const value = 100;
+        
+        // Act
+        await myContract.connect(user1).doSomething(value);
+        
+        // Assert
+        expect(await myContract.getValue()).to.equal(value);
+    });
+});
+```
+
+### Testing DeBridgeGate
+
+```javascript DeBridgeGate Test Example
+const { expect } = require('chai');
+const { ethers, upgrades } = require('hardhat');
+
+describe('DeBridgeGate Send Function', function () {
+    let debridgeGate, token;
+    let owner, user, receiver;
+    
+    beforeEach(async function () {
+        [owner, user, receiver] = await ethers.getSigners();
+        
+        // Deploy WETH
+        const WETH = await ethers.getContractFactory('WETH');
+        const weth = await WETH.deploy();
+        
+        // Deploy DeBridgeGate as upgradeable
+        const DeBridgeGate = await ethers.getContractFactory('DeBridgeGate');
+        debridgeGate = await upgrades.deployProxy(
+            DeBridgeGate,
+            [5, weth.address],  // excessConfirmations, weth
+            { initializer: 'initialize' }
+        );
+        
+        // Deploy test ERC20
+        const Token = await ethers.getContractFactory('MockERC20');
+        token = await Token.deploy('Test Token', 'TEST', 18);
+        await token.mint(user.address, ethers.utils.parseEther('1000'));
+    });
+    
+    it('Should send native token', async function () {
+        const amount = ethers.utils.parseEther('1');
+        const chainIdTo = 56; // BSC
+        
+        // Get protocol fee
+        const fee = await debridgeGate.globalFixedNativeFee();
+        
+        // Send native token
+        const tx = await debridgeGate.connect(user).send(
+            ethers.constants.AddressZero,  // native token
+            amount,
+            chainIdTo,
+            ethers.utils.hexZeroPad(receiver.address, 32),
+            '0x',
+            false,
+            0,
+            '0x',
+            { value: amount.add(fee) }
+        );
+        
+        // Check event
+        await expect(tx)
+            .to.emit(debridgeGate, 'Sent')
+            .withArgs(
+                /* check event args */
+            );
+    });
+    
+    it('Should send ERC20 token', async function () {
+        const amount = ethers.utils.parseEther('100');
+        const chainIdTo = 137; // Polygon
+        
+        // Approve
+        await token.connect(user).approve(debridgeGate.address, amount);
+        
+        // Get fee
+        const fee = await debridgeGate.globalFixedNativeFee();
+        
+        // Send token
+        await expect(
+            debridgeGate.connect(user).send(
+                token.address,
+                amount,
+                chainIdTo,
+                ethers.utils.hexZeroPad(receiver.address, 32),
+                '0x',
+                false,
+                0,
+                '0x',
+                { value: fee }
+            )
+        ).to.emit(debridgeGate, 'Sent');
+        
+        // Check balance
+        expect(await token.balanceOf(user.address))
+            .to.equal(ethers.utils.parseEther('900'));
+    });
+});
+```
+
+### Testing Oracle Signatures
+
+```javascript Signature Verification Test
+const { signSubmission } = require('./utils/signature');
+
+it('Should verify oracle signatures', async function () {
+    // Setup oracles
+    const oracles = [
+        await ethers.getSigner(0),
+        await ethers.getSigner(1),
+        await ethers.getSigner(2)
+    ];
+    
+    // Add oracles
+    await oraclesManager.addOracles(
+        oracles.map(o => o.address),
+        [true, true, true]  // all required
+    );
+    
+    // Create submission data
+    const submissionId = ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+            ['uint256', 'uint256', 'bytes32'],
+            [chainIdFrom, nonce, debridgeId]
+        )
+    );
+    
+    // Sign with oracles
+    const signatures = await Promise.all(
+        oracles.map(oracle => signSubmission(submissionId, oracle))
+    );
+    
+    // Concatenate signatures
+    const concatenatedSigs = ethers.utils.concat(signatures);
+    
+    // Verify
+    const [count] = await signatureVerifier.submit(
+        submissionId,
+        concatenatedSigs
+    );
+    
+    expect(count).to.equal(3);
+});
+```
+
+## Test Utilities
+
+### Common Helpers
+
+```javascript Test Helpers
+// Time manipulation
+const { time } = require('@openzeppelin/test-helpers');
+
+await time.increase(3600); // Advance 1 hour
+await time.increaseTo(futureTimestamp);
+
+// Balance tracking
+const { balance } = require('@openzeppelin/test-helpers');
+
+const tracker = await balance.tracker(user.address);
+await someTransaction();
+const delta = await tracker.delta();
+expect(delta).to.equal(expectedChange);
+
+// Expectation helpers
+const { expectRevert, expectEvent } = require('@openzeppelin/test-helpers');
+
+await expectRevert(
+    contract.failingFunction(),
+    'Expected error message'
+);
+
+const receipt = await contract.successFunction();
+await expectEvent(receipt, 'EventName', {
+    param1: expectedValue1,
+    param2: expectedValue2
+});
+```
+
+## Coverage
+
+Generate and view coverage:
+
+```bash
+# Run coverage
+yarn coverage
+
+# Open HTML report
+open coverage/index.html
+```
+
+Target coverage:
+- **Statements**: > 90%
+- **Branches**: > 85%
+- **Functions**: > 90%
+- **Lines**: > 90%
+
+<Tip>
+  Focus on covering critical paths: send, claim, signature verification, and fee calculations.
+</Tip>
+
+## Debugging Tests
+
+### Console Logging
+
+```javascript
+// In Solidity contracts
+console.log('Debug value:', someValue);
+
+// In tests
+console.log('Address:', await contract.address);
+console.log('Balance:', (await token.balanceOf(user)).toString());
+```
+
+### Hardhat Network Logging
+
+```javascript hardhat.config.ts
+module.exports = {
+    networks: {
+        hardhat: {
+            loggingEnabled: true
+        }
+    }
+};
+```
+
+### Gas Reporting
+
+```bash
+# Enable gas reporting
+REPORT_GAS=true yarn test
+```
+
+## CI/CD Integration
+
+GitHub Actions example:
+
+```yaml .github/workflows/test.yml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+      - run: yarn install
+      - run: yarn test:ci
+      - run: yarn coverage
+      - uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Isolate Tests">
+    Each test should be independent. Use `beforeEach` to reset state.
+  </Step>
+  
+  <Step title="Test Edge Cases">
+    Cover boundary conditions, zero values, maximum values, etc.
+  </Step>
+  
+  <Step title="Test Reverts">
+    Verify that functions revert with correct error messages.
+  </Step>
+  
+  <Step title="Use Descriptive Names">
+    Test names should clearly describe what they test.
+  </Step>
+  
+  <Step title="Arrange-Act-Assert">
+    Structure tests with clear setup, action, and verification phases.
+  </Step>
+</Steps>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Development Setup" icon="wrench" href="/development/setup">
+    Configure your development environment
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/development/deployment">
+    Deploy contracts to networks
+  </Card>
+</CardGroup>

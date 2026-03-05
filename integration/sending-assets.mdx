@@ -1,0 +1,677 @@
+---
+title: Sending Assets
+description: Complete guide to implementing asset transfers using DeBridgeGate
+---
+
+# Sending Assets
+
+This guide covers everything you need to know about sending assets across chains using the deBridge Protocol.
+
+## Overview
+
+The `send()` function is your main entry point for cross-chain asset transfers:
+
+```solidity contracts/interfaces/IDeBridgeGate.sol:138-147
+function send(
+    address _tokenAddress,     // Token to bridge (address(0) for native)
+    uint256 _amount,           // Amount to bridge
+    uint256 _chainIdTo,        // Destination chain ID
+    bytes memory _receiver,    // Receiver address on destination
+    bytes memory _permitEnvelope, // Optional: EIP-2612 permit
+    bool _useAssetFee,        // Pay fees in asset vs native token
+    uint32 _referralCode,     // Optional: referral tracking
+    bytes calldata _autoParams // Optional: auto-execution params
+) external payable returns (bytes32 submissionId);
+```
+
+## Basic ERC20 Transfer
+
+The simplest case: send ERC20 tokens to another chain.
+
+### Implementation
+
+```solidity Example: Basic ERC20 Bridge
+pragma solidity ^0.8.7;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IDeBridgeGate {
+    function send(
+        address _tokenAddress,
+        uint256 _amount,
+        uint256 _chainIdTo,
+        bytes memory _receiver,
+        bytes memory _permitEnvelope,
+        bool _useAssetFee,
+        uint32 _referralCode,
+        bytes calldata _autoParams
+    ) external payable returns (bytes32 submissionId);
+    
+    function globalFixedNativeFee() external view returns (uint256);
+}
+
+contract SimpleBridge {
+    IDeBridgeGate public immutable deBridgeGate;
+    
+    event AssetBridged(
+        address indexed sender,
+        address indexed token,
+        uint256 amount,
+        uint256 destChainId,
+        bytes32 submissionId
+    );
+    
+    constructor(address _deBridgeGate) {
+        deBridgeGate = IDeBridgeGate(_deBridgeGate);
+    }
+    
+    function bridgeToken(
+        address token,
+        uint256 amount,
+        uint256 destinationChainId,
+        address receiver
+    ) external payable returns (bytes32 submissionId) {
+        // 1. Transfer tokens from user
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        
+        // 2. Approve DeBridgeGate
+        IERC20(token).approve(address(deBridgeGate), amount);
+        
+        // 3. Bridge tokens
+        submissionId = deBridgeGate.send{value: msg.value}(
+            token,                              // Token address
+            amount,                             // Amount
+            destinationChainId,                 // Destination chain
+            abi.encodePacked(receiver),        // Receiver address as bytes
+            "",                                 // No permit
+            false,                              // Pay fee in native token
+            0,                                  // No referral
+            ""                                  // No auto-execution
+        );
+        
+        emit AssetBridged(msg.sender, token, amount, destinationChainId, submissionId);
+    }
+}
+```
+
+### Usage
+
+```javascript Example: Using SimpleBridge
+const token = await ethers.getContractAt("IERC20", tokenAddress);
+const bridge = await ethers.getContractAt("SimpleBridge", bridgeAddress);
+
+// Approve bridge to spend tokens
+await token.approve(bridge.address, amount);
+
+// Get required fee
+const deBridgeGate = await ethers.getContractAt("IDeBridgeGate", deBridgeGateAddress);
+const fee = await deBridgeGate.globalFixedNativeFee();
+
+// Bridge tokens
+const tx = await bridge.bridgeToken(
+    tokenAddress,
+    amount,
+    destinationChainId,
+    receiverAddress,
+    { value: fee }
+);
+
+const receipt = await tx.wait();
+const event = receipt.events?.find(e => e.event === 'AssetBridged');
+const submissionId = event?.args?.submissionId;
+
+console.log("Bridged! Submission ID:", submissionId);
+```
+
+## Native Token Transfer
+
+Sending native tokens (ETH, BNB, MATIC, etc.) is even simpler.
+
+### Implementation
+
+```solidity Example: Native Token Bridge
+function bridgeNative(
+    uint256 destinationChainId,
+    address receiver
+) external payable returns (bytes32 submissionId) {
+    require(msg.value > 0, "Must send native tokens");
+    
+    // For native tokens, pass address(0) as token address
+    // The entire msg.value is used (including fees)
+    submissionId = deBridgeGate.send{value: msg.value}(
+        address(0),                    // address(0) = native token
+        msg.value,                     // Amount (will be wrapped to WETH)
+        destinationChainId,
+        abi.encodePacked(receiver),
+        "",
+        true,                          // useAssetFee must be true for native
+        0,
+        ""
+    );
+    
+    emit NativeBridged(msg.sender, msg.value, destinationChainId, submissionId);
+}
+```
+
+<Note>
+  For native tokens:
+  - Use `address(0)` as `_tokenAddress`
+  - Set `_useAssetFee = true`  
+  - Fees are deducted from `msg.value`
+  - Tokens are wrapped to WETH internally
+</Note>
+
+## Using EIP-2612 Permit
+
+Avoid separate approval transaction using permit signatures.
+
+### Implementation
+
+```solidity Example: Bridge with Permit
+function bridgeWithPermit(
+    address token,
+    uint256 amount,
+    uint256 destinationChainId,
+    address receiver,
+    uint256 deadline,
+    uint8 v,
+    bytes32 r,
+    bytes32 s
+) external payable returns (bytes32 submissionId) {
+    // Encode permit envelope
+    bytes memory permitEnvelope = abi.encodePacked(
+        amount,      // 32 bytes
+        deadline,    // 32 bytes  
+        r,           // 32 bytes
+        s,           // 32 bytes
+        v            // 1 byte
+    );
+    
+    // No need for separate approve - permit is called internally
+    submissionId = deBridgeGate.send{value: msg.value}(
+        token,
+        amount,
+        destinationChainId,
+        abi.encodePacked(receiver),
+        permitEnvelope,  // Include permit
+        false,
+        0,
+        ""
+    );
+}
+```
+
+### Generating Permit Signature
+
+```javascript Example: Generate Permit Signature
+const { signERC2612Permit } = require('eth-permit');
+
+async function generatePermitSignature(
+    token,
+    owner,
+    spender,
+    value,
+    deadline
+) {
+    const result = await signERC2612Permit(
+        ethers.provider,
+        token.address,
+        owner,
+        spender,
+        value.toString(),
+        deadline
+    );
+    
+    return {
+        deadline: result.deadline,
+        v: result.v,
+        r: result.r,
+        s: result.s
+    };
+}
+
+// Usage
+const permit = await generatePermitSignature(
+    token,
+    userAddress,
+    deBridgeGateAddress,
+    amount,
+    Math.floor(Date.now() / 1000) + 3600  // 1 hour from now
+);
+
+await bridge.bridgeWithPermit(
+    tokenAddress,
+    amount,
+    destinationChainId,
+    receiverAddress,
+    permit.deadline,
+    permit.v,
+    permit.r,
+    permit.s,
+    { value: fee }
+);
+```
+
+## Fee Handling
+
+### Querying Fees
+
+```solidity Example: Fee Calculator
+function calculateTotalFees(
+    address token,
+    uint256 amount,
+    uint256 destChainId,
+    bool useAssetFee
+) public view returns (
+    uint256 fixedFee,
+    uint256 transferFee,
+    uint256 totalFee
+) {
+    // Get chain config
+    ChainSupportInfo memory chainConfig = deBridgeGate.getChainToConfig(destChainId);
+    
+    // Fixed fee
+    fixedFee = chainConfig.fixedNativeFee == 0
+        ? deBridgeGate.globalFixedNativeFee()
+        : chainConfig.fixedNativeFee;
+    
+    // Transfer fee
+    uint16 transferFeeBps = chainConfig.transferFeeBps == 0
+        ? deBridgeGate.globalTransferFeeBps()
+        : chainConfig.transferFeeBps;
+    
+    if (useAssetFee) {
+        // Deducted from amount
+        transferFee = (amount - fixedFee) * transferFeeBps / 10000;
+        totalFee = fixedFee + transferFee;
+    } else {
+        // Paid in native token
+        transferFee = amount * transferFeeBps / 10000;
+        totalFee = fixedFee + transferFee;
+    }
+}
+```
+
+### Using Asset Fees
+
+```solidity Example: Use Asset Fee
+function bridgeWithAssetFee(
+    address token,
+    uint256 amount,
+    uint256 destinationChainId,
+    address receiver
+) external returns (bytes32 submissionId) {
+    require(token != address(0), "Use bridgeNative for native tokens");
+    
+    IERC20(token).transferFrom(msg.sender, address(this), amount);
+    IERC20(token).approve(address(deBridgeGate), amount);
+    
+    // Fees will be deducted from the token amount
+    submissionId = deBridgeGate.send(
+        token,
+        amount,
+        destinationChainId,
+        abi.encodePacked(receiver),
+        "",
+        true,  // useAssetFee = true
+        0,
+        ""
+    );
+}
+```
+
+<Warning>
+  When using `useAssetFee = true`, the receiver gets `amount - fees`. Always account for this in your UI and calculations.
+</Warning>
+
+## Advanced: Referral Tracking
+
+Track referrals using the referral code parameter:
+
+```solidity Example: Referral System
+contract ReferralBridge {
+    mapping(uint32 => address) public referralCodes;
+    mapping(address => uint256) public referralEarnings;
+    
+    uint32 private nextReferralCode = 1;
+    
+    function registerReferral(address referrer) external returns (uint32 code) {
+        code = nextReferralCode++;
+        referralCodes[code] = referrer;
+    }
+    
+    function bridgeWithReferral(
+        address token,
+        uint256 amount,
+        uint256 destinationChainId,
+        address receiver,
+        uint32 referralCode
+    ) external payable returns (bytes32 submissionId) {
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).approve(address(deBridgeGate), amount);
+        
+        submissionId = deBridgeGate.send{value: msg.value}(
+            token,
+            amount,
+            destinationChainId,
+            abi.encodePacked(receiver),
+            "",
+            false,
+            referralCode,  // Track referral
+            ""
+        );
+        
+        // Track referral earnings (simplified)
+        address referrer = referralCodes[referralCode];
+        if (referrer != address(0)) {
+            uint256 commission = msg.value / 100;  // 1% commission
+            referralEarnings[referrer] += commission;
+        }
+    }
+}
+```
+
+## Handling Transfer Events
+
+Monitor the `Sent` event to track transfers:
+
+```solidity
+event Sent(
+    bytes32 submissionId,
+    bytes32 indexed debridgeId,
+    uint256 amount,
+    bytes receiver,
+    uint256 nonce,
+    uint256 indexed chainIdTo,
+    uint32 referralCode,
+    FeeParams feeParams,
+    bytes autoParams,
+    address nativeSender
+);
+```
+
+### Example: Event Listener
+
+```javascript Example: Monitor Transfers
+const deBridgeGate = await ethers.getContractAt("IDeBridgeGate", deBridgeGateAddress);
+
+// Listen for Sent events
+deBridgeGate.on("Sent", (
+    submissionId,
+    debridgeId,
+    amount,
+    receiver,
+    nonce,
+    chainIdTo,
+    referralCode,
+    feeParams,
+    autoParams,
+    nativeSender,
+    event
+) => {
+    console.log("Transfer initiated:", {
+        submissionId,
+        amount: amount.toString(),
+        from: nativeSender,
+        to: ethers.utils.hexlify(receiver),
+        destChain: chainIdTo.toString(),
+        txHash: event.transactionHash
+    });
+    
+    // Store in database, update UI, etc.
+});
+
+// Listen for Claimed events on destination chain
+destinationDeBridgeGate.on("Claimed", (
+    submissionId,
+    debridgeId,
+    amount,
+    receiver,
+    nonce,
+    chainIdFrom,
+    autoParams,
+    isNativeToken,
+    event
+) => {
+    console.log("Transfer completed:", {
+        submissionId,
+        amount: amount.toString(),
+        receiver,
+        txHash: event.transactionHash
+    });
+});
+```
+
+## Error Handling
+
+### Common Errors
+
+<AccordionGroup>
+  <Accordion title="TransferAmountNotCoverFees">
+    Sent amount doesn't cover protocol fees.
+    
+    **Solution**: Query fees first and ensure sufficient amount:
+    ```solidity
+    uint256 totalFees = calculateTotalFees(token, amount, destChain, useAssetFee);
+    require(amount > totalFees || msg.value >= totalFees, "Insufficient for fees");
+    ```
+  </Accordion>
+  
+  <Accordion title="WrongChainTo">
+    Destination chain is not supported.
+    
+    **Solution**: Check chain support before transfer:
+    ```solidity
+    ChainSupportInfo memory info = deBridgeGate.getChainToConfig(destChain);
+    require(info.isSupported, "Chain not supported");
+    ```
+  </Accordion>
+  
+  <Accordion title="TransferAmountTooHigh">
+    Amount exceeds maximum allowed for this asset.
+    
+    **Solution**: Check asset limits:
+    ```solidity
+    bytes32 debridgeId = deBridgeGate.getDebridgeId(chainId, tokenAddress);
+    DebridgeInfo memory info = deBridgeGate.getDebridge(debridgeId);
+    require(amount <= info.maxAmount, "Amount too high");
+    ```
+  </Accordion>
+  
+  <Accordion title="NotSupportedFixedFee">
+    Asset fee not configured when `useAssetFee = true`.
+    
+    **Solution**: Use native fee or check asset fee availability:
+    ```solidity
+    if (useAssetFee) {
+        uint256 assetFee = deBridgeGate.getDebridgeChainAssetFixedFee(debridgeId, destChain);
+        require(assetFee > 0, "Asset fee not supported");
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Robust Implementation
+
+```solidity Example: Error-Resistant Bridge
+contract SafeBridge {
+    error InsufficientBalance(uint256 required, uint256 available);
+    error UnsupportedChain(uint256 chainId);
+    error AmountTooHigh(uint256 amount, uint256 max);
+    error InsufficientFees(uint256 required, uint256 provided);
+    
+    function safeBridge(
+        address token,
+        uint256 amount,
+        uint256 destChainId,
+        address receiver
+    ) external payable returns (bytes32 submissionId) {
+        // 1. Validate chain support
+        ChainSupportInfo memory chainInfo = deBridgeGate.getChainToConfig(destChainId);
+        if (!chainInfo.isSupported) revert UnsupportedChain(destChainId);
+        
+        // 2. Validate user balance
+        uint256 balance = token == address(0)
+            ? msg.sender.balance
+            : IERC20(token).balanceOf(msg.sender);
+        if (balance < amount) revert InsufficientBalance(amount, balance);
+        
+        // 3. Validate amount against limits
+        bytes32 debridgeId = deBridgeGate.getDebridgeId(
+            block.chainid,
+            token == address(0) ? address(weth) : token
+        );
+        DebridgeInfo memory debridgeInfo = deBridgeGate.getDebridge(debridgeId);
+        if (amount > debridgeInfo.maxAmount) {
+            revert AmountTooHigh(amount, debridgeInfo.maxAmount);
+        }
+        
+        // 4. Validate fees
+        (uint256 fixedFee, uint256 transferFee, uint256 totalFee) = 
+            calculateTotalFees(token, amount, destChainId, token == address(0));
+        
+        if (token == address(0)) {
+            if (msg.value < amount) {
+                revert InsufficientFees(amount, msg.value);
+            }
+        } else {
+            if (msg.value < fixedFee) {
+                revert InsufficientFees(fixedFee, msg.value);
+            }
+        }
+        
+        // 5. Execute transfer
+        if (token != address(0)) {
+            IERC20(token).transferFrom(msg.sender, address(this), amount);
+            IERC20(token).approve(address(deBridgeGate), amount);
+        }
+        
+        submissionId = deBridgeGate.send{value: msg.value}(
+            token,
+            token == address(0) ? msg.value : amount,
+            destChainId,
+            abi.encodePacked(receiver),
+            "",
+            token == address(0),
+            0,
+            ""
+        );
+        
+        emit SafeBridgeCompleted(msg.sender, token, amount, destChainId, submissionId);
+    }
+}
+```
+
+## Testing
+
+### Unit Test Example
+
+```javascript Example: Test Bridge Function
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+describe("SimpleBridge", function () {
+    let bridge, deBridgeGate, token, owner, user;
+    
+    beforeEach(async function () {
+        [owner, user] = await ethers.getSigners();
+        
+        // Deploy mocks
+        const MockDeBridgeGate = await ethers.getContractFactory("MockDeBridgeGate");
+        deBridgeGate = await MockDeBridgeGate.deploy();
+        
+        const Token = await ethers.getContractFactory("MockERC20");
+        token = await Token.deploy("Test", "TST");
+        await token.mint(user.address, ethers.utils.parseEther("1000"));
+        
+        const Bridge = await ethers.getContractFactory("SimpleBridge");
+        bridge = await Bridge.deploy(deBridgeGate.address);
+    });
+    
+    it("Should bridge tokens successfully", async function () {
+        const amount = ethers.utils.parseEther("100");
+        const destChain = 56;
+        const fee = ethers.utils.parseEther("0.01");
+        
+        // Approve bridge
+        await token.connect(user).approve(bridge.address, amount);
+        
+        // Bridge
+        const tx = await bridge.connect(user).bridgeToken(
+            token.address,
+            amount,
+            destChain,
+            user.address,
+            { value: fee }
+        );
+        
+        // Verify event
+        await expect(tx)
+            .to.emit(bridge, "AssetBridged")
+            .withArgs(user.address, token.address, amount, destChain, anything());
+        
+        // Verify token transfer
+        expect(await token.balanceOf(bridge.address)).to.equal(0);
+        expect(await token.balanceOf(deBridgeGate.address)).to.equal(amount);
+    });
+    
+    it("Should revert if insufficient fee", async function () {
+        const amount = ethers.utils.parseEther("100");
+        await token.connect(user).approve(bridge.address, amount);
+        
+        await expect(
+            bridge.connect(user).bridgeToken(
+                token.address,
+                amount,
+                56,
+                user.address,
+                { value: 0 }  // No fee
+            )
+        ).to.be.reverted;
+    });
+});
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Query Fees First" icon="dollar-sign">
+    Always query current fees before initiating transfer to ensure user has sufficient balance
+  </Card>
+  
+  <Card title="Validate Inputs" icon="check">
+    Validate all inputs (chain support, token balance, amounts) before calling send()
+  </Card>
+  
+  <Card title="Emit Events" icon="bell">
+    Emit custom events for easier tracking and debugging
+  </Card>
+  
+  <Card title="Handle Errors" icon="exclamation-triangle">
+    Implement proper error handling with clear, actionable error messages
+  </Card>
+</CardGroup>
+
+<Tip>
+  For production applications, consider implementing a relayer service to automatically claim transfers on the destination chain, providing better UX for your users.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cross-Chain Calls" icon="phone" href="/integration/cross-chain-calls">
+    Learn to execute contract calls with your transfers
+  </Card>
+  
+  <Card title="Fee Structure" icon="coins" href="/concepts/fees">
+    Deep dive into fee calculation and optimization
+  </Card>
+  
+  <Card title="Transfers Concept" icon="exchange" href="/concepts/transfers">
+    Understand the underlying transfer mechanism
+  </Card>
+  
+  <Card title="BridgeAppBase" icon="layer-group" href="/integration/bridgeappbase">
+    Advanced pattern for complex applications
+  </Card>
+</CardGroup>
